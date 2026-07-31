@@ -9,7 +9,7 @@ SECTIONS = [
         "📊 Quotes & Charts",
         "`/stock <ticker> [range]` - price, day/52wk range, volume, market cap, a price+volume "
         "chart, and the analyst consensus, all in one embed. `range` picks the chart window: "
-        "1 Day, 5 Days, 1 Month (default), 6 Months, 1 Year, or 5 Years.",
+        "1 Day, 1 Week, 1 Month (default), 3 Months, 6 Months, Year to Date, 1 Year, or 5 Years.",
     ),
     (
         "⭐ Analyst Ratings",
