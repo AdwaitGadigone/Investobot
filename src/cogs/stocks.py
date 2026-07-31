@@ -67,6 +67,94 @@ def build_quote_embed(quote: dict) -> discord.Embed:
     return embed
 
 
+async def _build_stock_response(ticker: str, range_key: str) -> tuple[discord.Embed, discord.File]:
+    # Shared by the initial /stock reply and by the range dropdown below, so both build the exact
+    # same embed and chart for a given ticker and range, just triggered from two different places.
+    range_opts = charts.RANGE_OPTIONS[range_key]
+
+    quote, history, trends, target = await asyncio.gather(
+        market_data.get_quote(ticker),
+        market_data.get_price_history(ticker, range_opts["period"], range_opts["interval"]),
+        market_data.get_recommendation_trends(ticker),
+        market_data.get_price_target(ticker),
+    )
+
+    embed = build_quote_embed(quote)
+
+    consensus = market_data.summarize_recommendation(trends)
+    if consensus:
+        emoji, label = consensus
+        mean = target.get("targetMean") if target else None
+        if not mean:
+            # Alpha Vantage backup since Finnhub's target needs a paid plan.
+            mean = await market_data.get_price_target_average(ticker)
+
+        target_line = ""
+        if mean:
+            upside = (mean - quote["price"]) / quote["price"] * 100
+            direction = "upside" if upside >= 0 else "downside"
+            target_line = f"\nTarget **${mean:,.2f}** ({upside:+.1f}% {direction})"
+
+        embed.add_field(
+            name="Analyst Consensus",
+            value=f"{emoji} **{label}**{target_line}\n*use /rating for the full breakdown*",
+            inline=False,
+        )
+
+    chart_buf = await asyncio.to_thread(charts.build_price_chart, ticker, history, range_key)
+    chart_file = discord.File(chart_buf, filename="chart.png")
+    embed.set_image(url="attachment://chart.png")
+
+    return embed, chart_file
+
+
+class RangeSelect(discord.ui.Select):
+    # The dropdown attached under a /stock reply, lets someone flip the chart's timeframe
+    # after the fact instead of having to type /stock again with a different range option.
+
+    def __init__(self, ticker: str, current_range: str):
+        self.ticker = ticker
+        options = [
+            discord.SelectOption(label=opts["label"], value=key, default=(key == current_range))
+            for key, opts in charts.RANGE_OPTIONS.items()
+        ]
+        super().__init__(placeholder="Change the chart range...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        range_key = self.values[0]
+
+        # Marks the newly picked option as the one shown as selected next time the dropdown opens.
+        for option in self.options:
+            option.default = option.value == range_key
+
+        # Refetching and rebuilding the chart takes a couple seconds, defer avoids a failed interaction.
+        await interaction.response.defer()
+
+        try:
+            embed, chart_file = await _build_stock_response(self.ticker, range_key)
+        except market_data.TickerNotFoundError:
+            return
+
+        await interaction.edit_original_response(embed=embed, attachments=[chart_file], view=self.view)
+
+
+class StockView(discord.ui.View):
+    def __init__(self, ticker: str, current_range: str):
+        super().__init__(timeout=600)
+        self.message: discord.Message | None = None
+        self.add_item(RangeSelect(ticker, current_range))
+
+    async def on_timeout(self):
+        # After 10 minutes of no one touching it, disable the dropdown so it doesn't sit there uselessly.
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+
 class Stocks(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -93,49 +181,18 @@ class Stocks(commands.Cog):
 
         ticker = ticker.upper().strip()
         range_key = range.value if range else "1mo"
-        range_opts = charts.RANGE_OPTIONS[range_key]
 
         try:
-            # These 4 calls don't depend on each other, gathering them keeps the wait to the slowest one.
-            quote, history, trends, target = await asyncio.gather(
-                market_data.get_quote(ticker),
-                market_data.get_price_history(ticker, range_opts["period"], range_opts["interval"]),
-                market_data.get_recommendation_trends(ticker),
-                market_data.get_price_target(ticker),
-            )
+            embed, chart_file = await _build_stock_response(ticker, range_key)
         except market_data.TickerNotFoundError:
             await interaction.followup.send(
                 f"Couldn't find a ticker called `{ticker}`. Double-check the symbol."
             )
             return
 
-        embed = build_quote_embed(quote)
-
-        consensus = market_data.summarize_recommendation(trends)
-        if consensus:
-            emoji, label = consensus
-            mean = target.get("targetMean") if target else None
-            if not mean:
-                # Alpha Vantage backup since Finnhub's target needs a paid plan.
-                mean = await market_data.get_price_target_average(ticker)
-
-            target_line = ""
-            if mean:
-                upside = (mean - quote["price"]) / quote["price"] * 100
-                direction = "upside" if upside >= 0 else "downside"
-                target_line = f"\nTarget **${mean:,.2f}** ({upside:+.1f}% {direction})"
-
-            embed.add_field(
-                name="Analyst Consensus",
-                value=f"{emoji} **{label}**{target_line}\n*use /rating for the full breakdown*",
-                inline=False,
-            )
-
-        chart_buf = await asyncio.to_thread(charts.build_price_chart, ticker, history, range_key)
-        chart_file = discord.File(chart_buf, filename="chart.png")
-        embed.set_image(url="attachment://chart.png")
-
-        await interaction.followup.send(embed=embed, file=chart_file)
+        view = StockView(ticker, range_key)
+        await interaction.followup.send(embed=embed, file=chart_file, view=view)
+        view.message = await interaction.original_response()
 
 
 async def setup(bot: commands.Bot):
