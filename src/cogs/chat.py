@@ -68,8 +68,13 @@ class Chat(commands.Cog):
             return None
 
         # Our own replies are embeds, so the actual text lives in the embed, not message.content.
+        # This also covers the automatic big-move alerts, so replying "why" to one of those works,
+        # the title carries the ticker (e.g. "Big move: Apple Inc. (AAPL)") that the description alone
+        # wouldn't have, which is what lets the ticker/news lookup below actually find the right stock.
         if replied.embeds:
-            return replied.embeds[0].description
+            embed = replied.embeds[0]
+            parts = [p for p in (embed.title, embed.description) if p]
+            return "\n".join(parts) if parts else None
         return replied.content or None
 
 
