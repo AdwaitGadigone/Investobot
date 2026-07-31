@@ -8,7 +8,7 @@ from services import analyst_take, market_data
 
 
 class Analyst(commands.Cog):
-    # /rating, our replacement for TipRanks since they don't offer a public API individual developers can sign up for
+    # /rating, our replacement for TipRanks since they don't offer a public API individual developers can sign up for.
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -18,16 +18,18 @@ class Analyst(commands.Cog):
     )
     @app_commands.describe(ticker="Stock ticker symbol, e.g. AAPL")
     async def rating(self, interaction: discord.Interaction, ticker: str):
+        # Defer first since gathering 4 API calls plus an AI summary takes a few seconds.
         await interaction.response.defer()
         ticker = ticker.upper().strip()
 
         try:
+            # These 4 calls are independent, gathering them keeps the wait to the slowest one, not all 4 stacked up.
             quote, trends, target, news = await asyncio.gather(
                 market_data.get_quote(ticker),
                 market_data.get_recommendation_trends(ticker),
                 market_data.get_price_target(ticker),
                 market_data.get_company_news(ticker, days_back=5),
-            )  # these 4 calls are independent, gathering them keeps the wait to the slowest one instead of all 4 stacked up
+            )
         except market_data.TickerNotFoundError:
             await interaction.followup.send(f"`{ticker}` doesn't look like a valid ticker.")
             return
@@ -41,6 +43,7 @@ class Analyst(commands.Cog):
         embed = discord.Embed(title=f"Analyst Ratings for {ticker}", color=discord.Color.blurple())
 
         if trends:
+            # Adds up every analyst opinion so we can show a "Total analysts" count alongside the breakdown.
             total = (
                 trends.get("strongBuy", 0)
                 + trends.get("buy", 0)
@@ -74,12 +77,14 @@ class Analyst(commands.Cog):
                 inline=False,
             )
         else:
-            target_mean = await market_data.get_price_target_average(ticker)  # Finnhub's target needs a paid plan, fall back to Alpha Vantage
+            # Finnhub's price target needs a paid plan, fall back to Alpha Vantage's single average figure.
+            target_mean = await market_data.get_price_target_average(ticker)
             if target_mean:
                 embed.add_field(name="Average Price Target", value=f"${target_mean:,.2f}", inline=False)
 
+        # The one field in the bot written by an actual language model instead of pulled straight from a data source.
         take = await analyst_take.generate_analyst_take(ticker, quote["name"], quote, trends, target_mean, news)
-        if take:  # the one field in the bot written by an actual language model instead of pulled straight from a data source
+        if take:
             embed.add_field(name="Analyst Take", value=take, inline=False)
 
         if target and target.get("lastUpdated"):

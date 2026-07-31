@@ -8,7 +8,7 @@ ROLE_NAME = "Stock Alerts"
 
 
 class Notify(commands.Cog):
-    # /notify toggles a role that cogs/scheduler.py pings on big moves/news, created on first use
+    # /notify toggles a role that cogs/scheduler.py pings on big moves/news, created the first time anyone uses it.
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -16,11 +16,14 @@ class Notify(commands.Cog):
     @app_commands.command(name="notify", description="Toggle pings for automatic stock move/news updates")
     async def notify(self, interaction: discord.Interaction):
         guild = interaction.guild
+
+        # Checks the database first to see if this server already has the role set up.
         role_id = await db.get_alerts_role_id(guild.id)
         role = guild.get_role(role_id) if role_id else None
 
         if role is None:
             try:
+                # Creates the role for the first time and saves its ID so we don't create a duplicate later.
                 role = await guild.create_role(
                     name=ROLE_NAME, mentionable=True, reason="Investo auto-update pings"
                 )
@@ -33,6 +36,7 @@ class Notify(commands.Cog):
 
         member = interaction.user
         try:
+            # Toggle behaviour: running /notify again removes the role instead of erroring out.
             if role in member.roles:
                 await member.remove_roles(role, reason="Investo /notify toggle off")
                 await interaction.response.send_message("Turned off stock alert pings for you.")

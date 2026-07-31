@@ -8,7 +8,8 @@ from services import charts, market_data
 
 
 def _fmt_num(n: float | None) -> str:
-    if n is None:  # turns something like 4897205003506 into 4.90B instead of a wall of digits
+    # Turns something like 4897205003506 into 4.90B instead of a wall of digits.
+    if n is None:
         return "N/A"
     if abs(n) >= 1_000_000_000:
         return f"{n / 1_000_000_000:.2f}B"
@@ -20,8 +21,10 @@ def _fmt_num(n: float | None) -> str:
 
 
 def _range_bar(current: float, low: float | None, high: float | None, width: int = 14) -> str:
-    if low is None or high is None or high <= low:  # e.g. $150.00 [████████░░░░] $210.00, showing where price sits in the 52wk range
+    # Shows where the price sits in the 52wk range, e.g. $150.00 [████████░░░░] $210.00
+    if low is None or high is None or high <= low:
         return "N/A"
+
     pct = max(0.0, min(1.0, (current - low) / (high - low)))
     filled = round(pct * width)
     bar = "█" * filled + "░" * (width - filled)
@@ -29,7 +32,8 @@ def _range_bar(current: float, low: float | None, high: float | None, width: int
 
 
 def build_quote_embed(quote: dict) -> discord.Embed:
-    is_up = quote["change"] >= 0  # also reused by cogs/scheduler.py so the automatic big-move alerts look identical to /stock
+    # Also reused by cogs/scheduler.py, so the automatic alerts look the same as /stock.
+    is_up = quote["change"] >= 0
     color = discord.Color.green() if is_up else discord.Color.red()
     arrow = "▲" if is_up else "▼"
 
@@ -84,18 +88,21 @@ class Stocks(commands.Cog):
         ticker: str,
         range: app_commands.Choice[str] = None,
     ):
-        await interaction.response.defer()  # fetching everything takes longer than Discord's 3-second reply window, this buys more time
+        # Fetching everything takes longer than Discord's 3-second reply window, this buys more time.
+        await interaction.response.defer()
+
         ticker = ticker.upper().strip()
         range_key = range.value if range else "1mo"
         range_opts = charts.RANGE_OPTIONS[range_key]
 
         try:
+            # These 4 calls don't depend on each other, gathering them keeps the wait to the slowest one.
             quote, history, trends, target = await asyncio.gather(
                 market_data.get_quote(ticker),
                 market_data.get_price_history(ticker, range_opts["period"], range_opts["interval"]),
                 market_data.get_recommendation_trends(ticker),
                 market_data.get_price_target(ticker),
-            )  # these 4 calls don't depend on each other, gathering them means the wait is the slowest one, not all 4 added up
+            )
         except market_data.TickerNotFoundError:
             await interaction.followup.send(
                 f"Couldn't find a ticker called `{ticker}`. Double-check the symbol."
@@ -109,7 +116,8 @@ class Stocks(commands.Cog):
             emoji, label = consensus
             mean = target.get("targetMean") if target else None
             if not mean:
-                mean = await market_data.get_price_target_average(ticker)  # Alpha Vantage backup since Finnhub's target needs a paid plan
+                # Alpha Vantage backup since Finnhub's target needs a paid plan.
+                mean = await market_data.get_price_target_average(ticker)
 
             target_line = ""
             if mean:

@@ -8,11 +8,13 @@ import yfinance as yf
 from config import ALPHA_VANTAGE_API_KEY, FINNHUB_API_KEY
 from services import db
 
-_finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY) if FINNHUB_API_KEY else None  # stays None if no key, so features just return empty data
+# Stays None if no Finnhub key is set, so the functions below just return empty data instead of crashing.
+_finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY) if FINNHUB_API_KEY else None
 
 
 class TickerNotFoundError(Exception):
-    pass  # raised whenever someone gives the bot a ticker that doesn't exist, like /stock BLAHBLAH123
+    # Raised whenever someone gives the bot a ticker that doesn't exist, like /stock BLAHBLAH123.
+    pass
 
 
 def _fetch_quote_sync(ticker: str) -> dict:
@@ -23,7 +25,8 @@ def _fetch_quote_sync(ticker: str) -> dict:
         last_price = info.last_price
         prev_close = info.previous_close
     except Exception:
-        raise TickerNotFoundError(ticker)  # yfinance has no clean "not found" error, it just returns broken data for bad tickers
+        # yfinance has no clean "not found" error, it just returns broken data for bad tickers.
+        raise TickerNotFoundError(ticker)
 
     if last_price is None or prev_close is None:
         raise TickerNotFoundError(ticker)
@@ -33,7 +36,8 @@ def _fetch_quote_sync(ticker: str) -> dict:
 
     long_name = ticker.upper()
     try:
-        long_name = t.info.get("longName") or t.info.get("shortName") or long_name  # slower call, falls back to the ticker symbol if it fails
+        # This is a slower, separate call, falls back to the ticker symbol if it fails.
+        long_name = t.info.get("longName") or t.info.get("shortName") or long_name
     except Exception:
         pass
 
@@ -54,7 +58,8 @@ def _fetch_quote_sync(ticker: str) -> dict:
 
 
 async def get_quote(ticker: str) -> dict:
-    return await asyncio.to_thread(_fetch_quote_sync, ticker)  # yfinance blocks, so this runs it on a thread instead of freezing the bot
+    # yfinance blocks while it waits on the network, running it on a thread keeps the bot responsive.
+    return await asyncio.to_thread(_fetch_quote_sync, ticker)
 
 
 def _fetch_price_history_sync(ticker: str, period: str, interval: str):
@@ -75,8 +80,10 @@ def _fetch_recommendation_trends_sync(ticker: str) -> dict | None:
     try:
         trends = _finnhub_client.recommendation_trends(ticker.upper())
     except finnhub.exceptions.FinnhubAPIException:
-        return None  # a free-tier Finnhub key can't reach every endpoint, skip quietly instead of crashing the command
-    return trends[0] if trends else None  # Finnhub returns newest month first, so index 0 is the one we actually want
+        # A free-tier Finnhub key can't reach every endpoint, skip quietly instead of crashing.
+        return None
+    # Finnhub returns newest month first, so index 0 is the one we actually want.
+    return trends[0] if trends else None
 
 
 async def get_recommendation_trends(ticker: str) -> dict | None:
@@ -89,7 +96,8 @@ def _fetch_price_target_sync(ticker: str) -> dict | None:
     try:
         target = _finnhub_client.price_target(ticker.upper())
     except finnhub.exceptions.FinnhubAPIException:
-        return None  # price targets need a paid Finnhub plan, a free key gets a 403 here every time
+        # Price targets need a paid Finnhub plan, a free key gets a 403 here every time.
+        return None
     return target or None
 
 
@@ -100,6 +108,7 @@ async def get_price_target(ticker: str) -> dict | None:
 def _fetch_av_target_price_sync(ticker: str) -> float | None:
     if not ALPHA_VANTAGE_API_KEY:
         return None
+
     resp = requests.get(
         "https://www.alphavantage.co/query",
         params={"function": "OVERVIEW", "symbol": ticker.upper(), "apikey": ALPHA_VANTAGE_API_KEY},
@@ -109,6 +118,7 @@ def _fetch_av_target_price_sync(ticker: str) -> float | None:
     raw = data.get("AnalystTargetPrice")
     if not raw or raw in ("None", "-"):
         return None
+
     try:
         return float(raw)
     except ValueError:
@@ -116,13 +126,14 @@ def _fetch_av_target_price_sync(ticker: str) -> float | None:
 
 
 async def get_price_target_average(ticker: str) -> float | None:
-    # backup price target source for when Finnhub's is blocked behind its paid plan, used by both /stock and /rating
+    # Backup price target source for when Finnhub's is blocked behind its paid plan.
     ticker = ticker.upper()
     today = datetime.now(timezone.utc).date().isoformat()
 
     cached = await db.get_cached_price_target(ticker)
     if cached and cached[1] == today:
-        return cached[0]  # Alpha Vantage's free tier is only 25 requests/day total, so we reuse this for the rest of the day
+        # Alpha Vantage's free tier is only 25 requests/day total, so we reuse this for the rest of the day.
+        return cached[0]
 
     value = await asyncio.to_thread(_fetch_av_target_price_sync, ticker)
     if value is not None:
@@ -133,6 +144,7 @@ async def get_price_target_average(ticker: str) -> float | None:
 def _fetch_company_news_sync(ticker: str, days_back: int) -> list[dict]:
     if not _finnhub_client:
         return []
+
     to_date = datetime.utcnow().date()
     from_date = to_date - timedelta(days=days_back)
     try:
@@ -149,7 +161,7 @@ async def get_company_news(ticker: str, days_back: int = 3) -> list[dict]:
 
 
 def summarize_recommendation(trends: dict | None) -> tuple[str, str] | None:
-    # boils the full strong buy/buy/hold/sell/strong sell breakdown down into one quick label like "Buy" for the main /stock embed
+    # Boils the full breakdown down into one quick label like "Buy" for the main /stock embed.
     if not trends:
         return None
 
@@ -162,7 +174,8 @@ def summarize_recommendation(trends: dict | None) -> tuple[str, str] | None:
     if total == 0:
         return None
 
-    score = (strong_buy * 2 + buy * 1 + hold * 0 + sell * -1 + strong_sell * -2) / total  # strong buy/sell count double, same as TipRanks-style scoring
+    # Strong buy/sell count double, same basic idea TipRanks-style scoring uses.
+    score = (strong_buy * 2 + buy * 1 + hold * 0 + sell * -1 + strong_sell * -2) / total
 
     if score >= 1.2:
         return "🟢", "Strong Buy"
