@@ -28,7 +28,7 @@ CHECK_INTERVAL_MINUTES = 15
 BIG_MOVE_THRESHOLD_PCT = 5.0
 
 # Gemini's free tier has no billing requirement at all, which is what /rating's AI take runs on.
-ANALYST_TAKE_MODEL = "gemini-2.5-flash"
+ANALYST_TAKE_MODEL = "gemini-flash-latest"
 
 # Fail loudly right away instead of a confusing crash later when the bot tries to log in.
 if not DISCORD_TOKEN:
