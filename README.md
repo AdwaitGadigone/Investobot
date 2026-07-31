@@ -1,9 +1,10 @@
 # Investo
 
-A Discord bot I built with [Claude Code](https://claude.com/claude-code) for me and my
-friends to track stocks together. It lives in our server and handles everything from
-live quotes and charts to analyst ratings, news, watchlists, and price alerts, plus it
-posts automatically whenever something we're tracking makes a big move.
+A Discord bot built using [Claude Code](https://claude.com/claude-code) to track stocks
+(Test Project), for me and my friends to use together. It lives in our server and
+handles everything from live quotes and charts to analyst ratings, news, watchlists,
+and price alerts, plus it posts automatically whenever something we're tracking makes
+a big move.
 
 ## What it does
 
