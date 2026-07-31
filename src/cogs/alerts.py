@@ -6,11 +6,12 @@ from services import db, market_data
 
 
 class Alerts(commands.Cog):
-    # personal price alerts, the checking and DMing itself happens in cogs/scheduler.py's background loop
+    # Personal price alerts, the actual checking and DMing happens in cogs/scheduler.py's background loop.
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # app_commands.Group turns /alert into a parent command with sub-commands like /alert set.
     alert_group = app_commands.Group(name="alert", description="Manage your personal price alerts")
 
     @alert_group.command(name="set", description="Get DM'd when a ticker goes above/below a price")
@@ -19,6 +20,7 @@ class Alerts(commands.Cog):
         direction="Alert when price goes above or below the target",
         price="Target price in dollars",
     )
+    # app_commands.choices restricts the "direction" option to a dropdown of just these two values.
     @app_commands.choices(
         direction=[
             app_commands.Choice(name="above", value="above"),
@@ -33,6 +35,7 @@ class Alerts(commands.Cog):
         price: float,
     ):
         ticker = ticker.upper().strip()
+
         try:
             await market_data.get_quote(ticker)
         except market_data.TickerNotFoundError:
@@ -50,6 +53,7 @@ class Alerts(commands.Cog):
         if not rows:
             await interaction.response.send_message("You have no active alerts.")
             return
+
         lines = [f"#{aid} - **{ticker}** {direction} ${price:,.2f}" for aid, ticker, direction, price in rows]
         await interaction.response.send_message("\n".join(lines))
 

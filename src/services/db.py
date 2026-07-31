@@ -52,11 +52,13 @@ CREATE TABLE IF NOT EXISTS guild_settings (
 async def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.executescript(_SCHEMA)  # "IF NOT EXISTS" makes this safe to run on every single bot startup, not just the first
+        # "IF NOT EXISTS" makes this safe to run on every startup, not just the first one.
+        await db.executescript(_SCHEMA)
         await db.commit()
 
 
-# personal watchlists below, scoped per user per server so friends can track totally different tickers without affecting each other
+# Personal watchlists, scoped per user per server so friends can track different tickers.
+
 
 async def add_to_watchlist(guild_id: int, user_id: int, ticker: str) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -68,7 +70,8 @@ async def add_to_watchlist(guild_id: int, user_id: int, ticker: str) -> bool:
             await db.commit()
             return True
         except aiosqlite.IntegrityError:
-            return False  # the table's PRIMARY KEY already caught this, meaning the ticker's already on their watchlist
+            # The table's PRIMARY KEY caught this, meaning the ticker is already on their watchlist.
+            return False
 
 
 async def remove_from_watchlist(guild_id: int, user_id: int, ticker: str) -> bool:
@@ -91,7 +94,8 @@ async def get_watchlist(guild_id: int, user_id: int) -> list[str]:
         return [r[0] for r in rows]
 
 
-# server-wide tracked list below, this is exactly what cogs/scheduler.py scans every CHECK_INTERVAL_MINUTES for moves and news
+# The server-wide tracked list, this is exactly what cogs/scheduler.py scans for moves and news.
+
 
 async def add_tracked(guild_id: int, ticker: str, added_by: int) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -126,9 +130,11 @@ async def get_tracked(guild_id: int) -> list[str]:
 
 
 async def all_tracked_by_guild() -> dict[int, list[str]]:
-    async with aiosqlite.connect(DB_PATH) as db:  # one query for every server's tickers instead of a separate query per server
+    # One query for every server's tickers, instead of a separate query per server.
+    async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT guild_id, ticker FROM tracked")
         rows = await cur.fetchall()
+
     result: dict[int, list[str]] = {}
     for guild_id, ticker in rows:
         result.setdefault(guild_id, []).append(ticker)
@@ -136,7 +142,8 @@ async def all_tracked_by_guild() -> dict[int, list[str]]:
 
 
 async def get_last_alert_date(guild_id: int, ticker: str) -> str | None:
-    async with aiosqlite.connect(DB_PATH) as db:  # lets the scheduler only post a "big move" alert once per ticker per day, not every 15 minutes
+    # Lets the scheduler post a "big move" alert once per ticker per day instead of every 15 minutes.
+    async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
             "SELECT last_alert_date FROM tracked WHERE guild_id = ? AND ticker = ?",
             (guild_id, ticker),
@@ -154,7 +161,8 @@ async def set_last_alert_date(guild_id: int, ticker: str, date_str: str) -> None
         await db.commit()
 
 
-# price alerts below, each belongs to one user and gets deactivated rather than deleted once it triggers
+# Price alerts, each belongs to one user and gets deactivated rather than deleted once it triggers.
+
 
 async def add_alert(guild_id: int, user_id: int, ticker: str, direction: str, target_price: float) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -163,13 +171,15 @@ async def add_alert(guild_id: int, user_id: int, ticker: str, direction: str, ta
             (guild_id, user_id, ticker, direction, target_price),
         )
         await db.commit()
-        return cur.lastrowid  # the new row's auto-incremented ID, so the user has a short number to reference if they cancel it later
+        # SQLite's auto-incremented ID, so the user has a short number to reference later.
+        return cur.lastrowid
 
 
 async def remove_alert(alert_id: int, user_id: int) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
+        # Checking user_id too stops someone cancelling another person's alert.
         cur = await db.execute(
-            "DELETE FROM alerts WHERE id = ? AND user_id = ?", (alert_id, user_id)  # user_id check stops someone cancelling another person's alert
+            "DELETE FROM alerts WHERE id = ? AND user_id = ?", (alert_id, user_id)
         )
         await db.commit()
         return cur.rowcount > 0
@@ -186,7 +196,8 @@ async def get_user_alerts(guild_id: int, user_id: int) -> list[tuple]:
 
 
 async def get_active_alerts() -> list[tuple]:
-    async with aiosqlite.connect(DB_PATH) as db:  # the scheduler grabs every active alert from every user in every server in one single query
+    # The scheduler grabs every active alert from every user in every server in one query.
+    async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
             "SELECT id, guild_id, user_id, ticker, direction, target_price "
             "FROM alerts WHERE active = 1"
@@ -200,7 +211,8 @@ async def deactivate_alert(alert_id: int) -> None:
         await db.commit()
 
 
-# news dedup below, stops the bot reposting the same headline since Finnhub returns the same articles on every call until they age out
+# News dedup, stops the bot reposting the same headline since Finnhub repeats articles on every call.
+
 
 async def is_news_seen(guild_id: int, news_id: str) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -220,10 +232,12 @@ async def mark_news_seen(guild_id: int, news_id: str) -> None:
             )
             await db.commit()
         except aiosqlite.IntegrityError:
-            pass  # already marked seen from an earlier check
+            # Already marked as seen from an earlier check.
+            pass
 
 
-# alpha vantage price target cache below, their free tier caps out at 25 requests/day total so we only ever ask once per ticker per day
+# Alpha Vantage price target cache, their free tier caps out at 25 requests/day total.
+
 
 async def get_cached_price_target(ticker: str) -> tuple[float, str] | None:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -246,7 +260,8 @@ async def set_cached_price_target(ticker: str, target_price: float, date_str: st
         await db.commit()
 
 
-# per-server settings below, just the Stock Alerts role for now, set up through /notify
+# Per-server settings, just the Stock Alerts role for now, set up through /notify.
+
 
 async def get_alerts_role_id(guild_id: int) -> int | None:
     async with aiosqlite.connect(DB_PATH) as db:

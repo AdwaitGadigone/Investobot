@@ -6,11 +6,12 @@ from services import db, market_data
 
 
 class Watchlist(commands.Cog):
-    # /watchlist is a private per-user list, /track is the shared server-wide list cogs/scheduler.py actually watches
+    # /watchlist is a private per-user list, /track is the shared server-wide list the scheduler watches.
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # app_commands.Group turns /watchlist into a parent command with sub-commands like /watchlist add.
     watchlist_group = app_commands.Group(
         name="watchlist", description="Manage your personal stock watchlist"
     )
@@ -22,11 +23,15 @@ class Watchlist(commands.Cog):
     @watchlist_group.command(name="add", description="Add a ticker to your personal watchlist")
     async def watchlist_add(self, interaction: discord.Interaction, ticker: str):
         ticker = ticker.upper().strip()
+
         try:
-            await market_data.get_quote(ticker)  # sanity check so we don't save a typo that never returns data
+            # Sanity check so we don't save a typo that never returns data later.
+            await market_data.get_quote(ticker)
         except market_data.TickerNotFoundError:
             await interaction.response.send_message(f"`{ticker}` doesn't look like a valid ticker.")
             return
+
+        # interaction.guild_id and interaction.user.id scope the watchlist to this specific server and person.
         added = await db.add_to_watchlist(interaction.guild_id, interaction.user.id, ticker)
         msg = f"Added **{ticker}** to your watchlist." if added else f"**{ticker}** is already on your watchlist."
         await interaction.response.send_message(msg)
@@ -49,11 +54,14 @@ class Watchlist(commands.Cog):
     @track_group.command(name="add", description="Add a ticker to the server's shared tracked list")
     async def track_add(self, interaction: discord.Interaction, ticker: str):
         ticker = ticker.upper().strip()
+
         try:
             await market_data.get_quote(ticker)
         except market_data.TickerNotFoundError:
             await interaction.response.send_message(f"`{ticker}` doesn't look like a valid ticker.")
             return
+
+        # Unlike the watchlist above, this list isn't tied to one user, everyone in the server shares it.
         added = await db.add_tracked(interaction.guild_id, ticker, interaction.user.id)
         if added:
             await interaction.response.send_message(
@@ -78,5 +86,6 @@ class Watchlist(commands.Cog):
         await interaction.response.send_message(f"**Server tracked list:** {', '.join(tickers)}")
 
 
+# This function name and signature are required by discord.py, it's called automatically when the cog loads.
 async def setup(bot: commands.Bot):
     await bot.add_cog(Watchlist(bot))

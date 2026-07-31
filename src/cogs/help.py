@@ -2,6 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+# Every category shown in the /help dropdown, each one is its own embed page.
+# "fields" is a list of (name, description) pairs that become embed fields when that category is picked.
 CATEGORIES = [
     {
         "key": "quotes",
@@ -101,6 +103,7 @@ CATEGORIES = [
 
 
 def _build_home_embed() -> discord.Embed:
+    # The first screen someone sees, one line per category rather than dumping every command at once.
     embed = discord.Embed(
         title="📈 Investo",
         description=(
@@ -116,15 +119,19 @@ def _build_home_embed() -> discord.Embed:
 
 
 def _build_category_embed(cat: dict) -> discord.Embed:
+    # Swapped in when someone picks a category from the dropdown, replacing the home screen above.
     embed = discord.Embed(title=f"{cat['emoji']} {cat['label']}", color=discord.Color.blurple())
     for name, value in cat["fields"]:
-        field_name = f"`{name}`" if name.startswith("/") else name  # command names get code formatting, plain headers don't
+        # Command names get code formatting with backticks, plain section headers don't.
+        field_name = f"`{name}`" if name.startswith("/") else name
         embed.add_field(name=field_name, value=value, inline=False)
     embed.set_footer(text="Data from Yahoo Finance, Finnhub, and Alpha Vantage")
     return embed
 
 
 class HelpCategorySelect(discord.ui.Select):
+    # discord.ui.Select is Discord's dropdown menu component, this builds one option per category.
+
     def __init__(self):
         options = [
             discord.SelectOption(label=cat["label"], description=cat["short"], emoji=cat["emoji"], value=cat["key"])
@@ -133,17 +140,22 @@ class HelpCategorySelect(discord.ui.Select):
         super().__init__(placeholder="Pick a category for more detail...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
+        # Runs whenever someone picks an option, self.values[0] is whichever category key they chose.
         cat = next(c for c in CATEGORIES if c["key"] == self.values[0])
+        # edit_message swaps out the embed in place instead of sending a whole new message.
         await interaction.response.edit_message(embed=_build_category_embed(cat), view=self.view)
 
 
 class HelpView(discord.ui.View):
+    # A View is the container Discord attaches interactive components to, here it just holds the dropdown.
+
     def __init__(self):
         super().__init__(timeout=180)
         self.message: discord.Message | None = None
         self.add_item(HelpCategorySelect())
 
     async def on_timeout(self):
+        # After 180 seconds of no interaction, disable the dropdown so it doesn't sit there uselessly forever.
         for item in self.children:
             item.disabled = True
         if self.message:
@@ -161,6 +173,7 @@ class Help(commands.Cog):
     async def help(self, interaction: discord.Interaction):
         view = HelpView()
         await interaction.response.send_message(embed=_build_home_embed(), view=view)
+        # Stored so on_timeout above can find this exact message and disable the dropdown on it.
         view.message = await interaction.original_response()
 
 

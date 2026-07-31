@@ -12,34 +12,42 @@ log = logging.getLogger("investo.scheduler")
 
 
 class Scheduler(commands.Cog):
-    # the background loop, every CHECK_INTERVAL_MINUTES it checks tracked tickers for big moves/news and everyone's price alerts
+    # The background loop, every CHECK_INTERVAL_MINUTES it checks tracked tickers for big moves/news and price alerts.
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # Starts the loop as soon as this cog is loaded, defined below with the @tasks.loop decorator.
         self.check_loop.start()
 
     def cog_unload(self):
-        self.check_loop.cancel()  # stops cleanly so a hot-reload doesn't leave a duplicate loop running
+        # Stops the loop cleanly so a hot-reload during development doesn't leave a duplicate loop running.
+        self.check_loop.cancel()
 
+    # tasks.loop turns this into a function that automatically repeats itself every CHECK_INTERVAL_MINUTES.
     @tasks.loop(minutes=CHECK_INTERVAL_MINUTES)
     async def check_loop(self):
         await self._check_movers_and_news()
         await self._check_alerts()
 
+    # before_loop runs once before the very first iteration of the loop above.
     @check_loop.before_loop
     async def before_check_loop(self):
-        await self.bot.wait_until_ready()  # otherwise the loop could fire before the bot finishes logging in
+        # Waiting here stops the loop from firing before the bot has even finished logging in.
+        await self.bot.wait_until_ready()
 
     async def _updates_channel(self):
         if not UPDATES_CHANNEL_ID:
             return None
+
         channel = self.bot.get_channel(int(UPDATES_CHANNEL_ID))
         if channel is None:
             try:
-                channel = await self.bot.fetch_channel(int(UPDATES_CHANNEL_ID))  # not in the local cache, ask Discord directly
+                # get_channel only checks the bot's local cache, fetch_channel asks Discord directly.
+                channel = await self.bot.fetch_channel(int(UPDATES_CHANNEL_ID))
             except discord.HTTPException:
                 log.warning("Could not resolve UPDATES_CHANNEL_ID=%s", UPDATES_CHANNEL_ID)
                 return None
+
         return channel
 
     async def _check_movers_and_news(self):
@@ -47,12 +55,14 @@ class Scheduler(commands.Cog):
         if channel is None:
             return
 
+        # Fetches every tracked ticker across every server in one go, grouped by server.
         tracked_by_guild = await db.all_tracked_by_guild()
         today = datetime.now(timezone.utc).date().isoformat()
 
         for guild_id, tickers in tracked_by_guild.items():
             role_id = await db.get_alerts_role_id(guild_id)
-            ping = f"<@&{role_id}>" if role_id else None  # stays None until someone sets up /notify in this server
+            # Stays None until someone sets up /notify in this server, in which case nothing gets pinged.
+            ping = f"<@&{role_id}>" if role_id else None
 
             for ticker in tickers:
                 try:
@@ -60,7 +70,8 @@ class Scheduler(commands.Cog):
                 except market_data.TickerNotFoundError:
                     continue
                 except Exception:
-                    log.exception("Failed to fetch quote for %s", ticker)  # one bad ticker shouldn't stop the rest of the list from being checked
+                    # One bad ticker shouldn't stop the rest of the list from being checked.
+                    log.exception("Failed to fetch quote for %s", ticker)
                     continue
 
                 last_alert = await db.get_last_alert_date(guild_id, ticker)
@@ -80,6 +91,7 @@ class Scheduler(commands.Cog):
                     news_id = str(article.get("id") or article.get("url"))
                     if not news_id or await db.is_news_seen(guild_id, news_id):
                         continue
+
                     await db.mark_news_seen(guild_id, news_id)
                     embed = discord.Embed(
                         title=article.get("headline", "Untitled")[:250],
@@ -91,7 +103,9 @@ class Scheduler(commands.Cog):
 
     async def _check_alerts(self):
         alerts = await db.get_active_alerts()
-        quote_cache: dict[str, dict] = {}  # so 3 people alerting on the same ticker means 1 fetch this loop, not 3
+
+        # If 3 people set an alert on the same ticker, this means 1 price fetch this loop, not 3.
+        quote_cache: dict[str, dict] = {}
 
         for alert_id, guild_id, user_id, ticker, direction, target_price in alerts:
             if ticker not in quote_cache:
@@ -116,7 +130,8 @@ class Scheduler(commands.Cog):
                     f"{direction} ${target_price:,.2f} has triggered."
                 )
             except discord.HTTPException:
-                log.warning("Could not DM user %s for alert #%s", user_id, alert_id)  # probably has server-member DMs turned off
+                # Probably means the user has server-member DMs turned off, nothing we can do about that.
+                log.warning("Could not DM user %s for alert #%s", user_id, alert_id)
 
 
 async def setup(bot: commands.Bot):
