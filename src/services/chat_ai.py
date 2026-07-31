@@ -27,7 +27,12 @@ SYSTEM_PROMPT = (
     "say plainly that you don't have live data for it right now instead of guessing a "
     "number. Share opinions and analysis freely, but frame forward-looking takes as your "
     "own view rather than certain fact, this is casual conversation, not professional "
-    "financial advice. Never use em dashes, use commas, periods, or parentheses instead."
+    "financial advice. Never use em dashes, use commas, periods, or parentheses instead. "
+    "If someone asks why a stock moved and you were given recent headlines for it, base "
+    "your answer on those. If you weren't given any headlines, or none of them plausibly "
+    "explain the move, say the move doesn't look tied to any specific news you have and "
+    "talk in general terms instead (broader market conditions, sector trends, normal "
+    "volatility) rather than inventing a specific catalyst."
 )
 
 # Common short acronyms that would otherwise false-match the bare-ticker pattern below.
@@ -58,7 +63,8 @@ def _extract_tickers(text: str, limit: int = 3) -> list[str]:
 
 
 async def _gather_ticker_context(tickers: list[str]) -> str:
-    # Grounds the model in a real, current price instead of letting it guess from training data.
+    # Grounds the model in a real price and real headlines instead of letting it guess or
+    # invent a reason from training data, this is what makes "why did it move" answers reliable.
     lines = []
     for ticker in tickers:
         try:
@@ -66,6 +72,16 @@ async def _gather_ticker_context(tickers: list[str]) -> str:
         except Exception:
             continue
         lines.append(f"{quote['ticker']} ({quote['name']}): ${quote['price']:,.2f}, {quote['change_pct']:+.2f}% today")
+
+        try:
+            articles = await market_data.get_company_news(ticker, days_back=2)
+        except Exception:
+            articles = []
+        for article in sorted(articles, key=lambda a: a.get("datetime", 0), reverse=True)[:3]:
+            headline = article.get("headline", "Untitled")
+            source = article.get("source", "unknown source")
+            lines.append(f"  Recent headline: {headline} ({source})")
+
     return "\n".join(lines)
 
 
@@ -97,7 +113,10 @@ async def generate_chat_reply(question: str, prior_reply: str | None = None) -> 
     if not _client:
         return None
 
-    tickers = _extract_tickers(question)
+    # Scanning the prior message too is what makes a bare "why" work when replying to a
+    # big-move alert, the question alone has no ticker in it, the alert's title does.
+    search_text = f"{prior_reply}\n{question}" if prior_reply else question
+    tickers = _extract_tickers(search_text)
     ticker_context = await _gather_ticker_context(tickers) if tickers else ""
 
     parts = []
