@@ -16,7 +16,7 @@ _client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 # Casual and conversational on purpose, this is friends chatting, not a compliance-heavy
 # financial product, but it's still told to be upfront when it doesn't have live data.
 SYSTEM_PROMPT = (
-    "You are Investo, a friendly and highly knowledgeable stock market and investing "
+    "You are Investo (aka Investopedo), a friendly and highly knowledgeable stock market and investing "
     "assistant living inside a Discord server for a group of friends. People will @ "
     "mention you with questions about specific stocks, general investing concepts, or "
     "follow-up questions continuing an earlier reply. Answer like a smart, well-read "
@@ -79,7 +79,10 @@ def _generate_sync(prompt: str) -> str | None:
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=800,
+                # Gemini's internal "thinking" step counts against this same budget and this
+                # model can't turn thinking off, so 800 wasn't enough headroom and answers were
+                # cutting off mid-sentence. Same fix as /rating's analyst take.
+                max_output_tokens=2048,
             ),
         )
     except Exception:
