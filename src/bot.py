@@ -21,13 +21,17 @@ INITIAL_EXTENSIONS = (
     "cogs.scheduler",
     "cogs.notify",
     "cogs.help",
+    "cogs.chat",
 )
 
 
 class InvestoBot(commands.Bot):
     def __init__(self):
-        # Default intents cover everything we need, we're slash-command only so no privileged intents required.
         intents = discord.Intents.default()
+        # Needed so cogs/chat.py can actually read what someone typed when they @ mention
+        # the bot, not just that a mention happened. This is a privileged intent, it also
+        # has to be turned on in the Discord Developer Portal (Bot page) or login will fail.
+        intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):

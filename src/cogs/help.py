@@ -46,6 +46,12 @@ SECTIONS = [
         "Every 15 minutes, Investo checks the server's tracked list for big moves (5% or more since "
         "yesterday's close) and fresh news, and posts them to a channel the server owner picked.",
     ),
+    (
+        "🤖 Ask Me Anything",
+        "@ mention the bot with a question about a stock, investing in general, or a follow-up to "
+        "something it already said (reply to its message to keep the thread going), and it'll answer "
+        "using an AI that pulls in live prices for any ticker you mention.",
+    ),
 ]
 
 
@@ -60,7 +66,7 @@ def _build_help_embed() -> discord.Embed:
     for name, value in SECTIONS:
         embed.add_field(name=name, value=value, inline=False)
 
-    embed.set_footer(text="Data from Yahoo Finance, Finnhub, Alpha Vantage, and Claude")
+    embed.set_footer(text="Data from Yahoo Finance, Finnhub, Alpha Vantage, and Google Gemini")
     return embed
 
 

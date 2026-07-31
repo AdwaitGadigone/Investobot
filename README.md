@@ -25,6 +25,14 @@ Every 15 minutes, Investo scans the server's tracked list for big moves (5% or m
 since yesterday's close) and fresh news, and posts them straight to a channel, pinging
 the Stock Alerts role if anyone's opted in with `/notify`.
 
+### Ask it anything
+
+@ mention the bot with a question, whether it's about a specific ticker, a general
+investing question, or a follow-up (reply to its message to keep the thread going), and
+it replies conversationally. If you mention a ticker (`$AAPL` or bare `AAPL`), it pulls
+a live quote in first so the answer is grounded in a real, current price instead of
+whatever the model remembers from training.
+
 ## Where the data comes from
 
 | Source | Used for |
@@ -32,7 +40,7 @@ the Stock Alerts role if anyone's opted in with `/notify`.
 | **Yahoo Finance** (via `yfinance`) | Prices, fundamentals, and the charts |
 | **Finnhub** | Analyst ratings and company news |
 | **Alpha Vantage** | Backup analyst price target, since Finnhub only gives that out on a paid plan |
-| **Google Gemini** (free tier) | Writes the "Analyst Take" summary in `/rating` |
+| **Google Gemini** (free tier) | Writes the "Analyst Take" summary in `/rating` and powers @ mention replies |
 
 TipRanks was the original plan for the analyst side of things, but they don't offer a
 public API individual developers can sign up for, so this combination of free sources
