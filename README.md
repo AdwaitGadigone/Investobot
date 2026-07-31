@@ -21,9 +21,12 @@ tracking makes a big move.
 
 ### Automatic updates
 
-Every 15 minutes, Investo scans the server's tracked list for big moves (5% or more
-since yesterday's close) and fresh news, and posts them straight to a channel, pinging
-the Stock Alerts role if anyone's opted in with `/notify`.
+Every 15 minutes, Investo scans the server's tracked list for big price moves (5% or
+more since yesterday's close) and posts them straight to a channel, pinging the Stock
+Alerts role if anyone's opted in with `/notify`. (An earlier version also auto-posted
+every news article for a ticker, which flooded the channel for anything heavily
+covered, like a stock during earnings week, so that part was removed. `/news` still
+works fine for checking headlines on demand.)
 
 ### Ask it anything
 

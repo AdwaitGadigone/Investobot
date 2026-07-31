@@ -43,8 +43,9 @@ SECTIONS = [
     ),
     (
         "🔁 Automatic Updates",
-        "Every 15 minutes, Investo checks the server's tracked list for big moves (5% or more since "
-        "yesterday's close) and fresh news, and posts them to a channel the server owner picked.",
+        "Every 15 minutes, Investo checks the server's tracked list for big price moves (5% or more "
+        "since yesterday's close) and posts them to a channel the server owner picked. Use `/news` "
+        "any time to check headlines yourself.",
     ),
     (
         "🤖 Ask Me Anything",

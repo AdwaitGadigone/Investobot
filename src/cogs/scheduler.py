@@ -12,7 +12,7 @@ log = logging.getLogger("investo.scheduler")
 
 
 class Scheduler(commands.Cog):
-    # The background loop, every CHECK_INTERVAL_MINUTES it checks tracked tickers for big moves/news and price alerts.
+    # The background loop, every CHECK_INTERVAL_MINUTES it checks tracked tickers for big price moves and personal price alerts.
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -26,7 +26,7 @@ class Scheduler(commands.Cog):
     # tasks.loop turns this into a function that automatically repeats itself every CHECK_INTERVAL_MINUTES.
     @tasks.loop(minutes=CHECK_INTERVAL_MINUTES)
     async def check_loop(self):
-        await self._check_movers_and_news()
+        await self._check_movers()
         await self._check_alerts()
 
     # before_loop runs once before the very first iteration of the loop above.
@@ -50,7 +50,11 @@ class Scheduler(commands.Cog):
 
         return channel
 
-    async def _check_movers_and_news(self):
+    async def _check_movers(self):
+        # Only posts price moves here, not individual news articles. A heavily-covered
+        # ticker can have 50+ headlines a day, posting each one separately as its own
+        # message is exactly the kind of flood this used to cause. /news stays available
+        # for checking headlines on demand instead.
         channel = await self._updates_channel()
         if channel is None:
             return
@@ -80,26 +84,6 @@ class Scheduler(commands.Cog):
                     embed.title = f"📈 Big move: {embed.title}" if quote["change"] >= 0 else f"📉 Big move: {embed.title}"
                     await channel.send(content=ping, embed=embed)
                     await db.set_last_alert_date(guild_id, ticker, today)
-
-                try:
-                    articles = await market_data.get_company_news(ticker, days_back=1)
-                except Exception:
-                    log.exception("Failed to fetch news for %s", ticker)
-                    articles = []
-
-                for article in articles:
-                    news_id = str(article.get("id") or article.get("url"))
-                    if not news_id or await db.is_news_seen(guild_id, news_id):
-                        continue
-
-                    await db.mark_news_seen(guild_id, news_id)
-                    embed = discord.Embed(
-                        title=article.get("headline", "Untitled")[:250],
-                        url=article.get("url") or None,
-                        description=f"**{ticker}**, from {article.get('source', 'Unknown source')}",
-                        color=discord.Color.gold(),
-                    )
-                    await channel.send(content=ping, embed=embed)
 
     async def _check_alerts(self):
         alerts = await db.get_active_alerts()
