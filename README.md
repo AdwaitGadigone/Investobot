@@ -1,7 +1,7 @@
 # Investo
 
-A Discord bot I built for me and my friends to track stocks together. Prices
-and general stock info come from Yahoo Finance (through the `yfinance`
+A Discord bot built using Claude Code to track stocks (Test Project). 
+Prices and general stock info come from Yahoo Finance (through the `yfinance`
 library), and analyst ratings, price targets, and news come from
 [Finnhub](https://finnhub.io) (free tier). I originally wanted to use
 TipRanks for the analyst stuff, but they don't have a public API you can
