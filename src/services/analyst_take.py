@@ -63,7 +63,10 @@ def _generate_sync(prompt: str) -> str | None:
             # system_instruction keeps the ground rules separate from the actual facts being summarized.
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=400,
+                # Gemini's internal "thinking" step counts against this same token budget, and this
+                # particular model alias doesn't allow turning thinking off, so the budget needs to be
+                # generous enough to cover both the thinking and the actual few-sentence answer.
+                max_output_tokens=2048,
             ),
         )
     except Exception:
