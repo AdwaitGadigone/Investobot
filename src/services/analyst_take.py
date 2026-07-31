@@ -1,14 +1,15 @@
 import asyncio
 import logging
 
-import anthropic
+from google import genai
+from google.genai import types
 
-from config import ANALYST_TAKE_MODEL, ANTHROPIC_API_KEY
+from config import ANALYST_TAKE_MODEL, GEMINI_API_KEY
 
 log = logging.getLogger("investo.analyst_take")
 
 # Stays None without a key, so /rating just skips this field entirely.
-_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 # Strict about not inventing facts, a made-up earnings date would look like real analysis.
 SYSTEM_PROMPT = (
@@ -47,7 +48,7 @@ def _build_prompt(ticker: str, name: str, quote: dict, trends: dict | None, targ
     else:
         lines.append("Recent headlines: none available")
 
-    # Everything Claude is allowed to reference gets spelled out here as plain facts.
+    # Everything Gemini is allowed to reference gets spelled out here as plain facts.
     return "\n".join(lines)
 
 
@@ -56,24 +57,22 @@ def _generate_sync(prompt: str) -> str | None:
         return None
 
     try:
-        response = _client.messages.create(
+        response = _client.models.generate_content(
             model=ANALYST_TAKE_MODEL,
-            max_tokens=400,
-            # Summarizing a few given facts is simple, low effort keeps this cheap and fast.
-            output_config={"effort": "low"},
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
+            contents=prompt,
+            # system_instruction keeps the ground rules separate from the actual facts being summarized.
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                max_output_tokens=400,
+            ),
         )
-    except anthropic.APIError:
+    except Exception:
         # /rating should still work fine, just skip this one field.
-        log.exception("Anthropic API call failed while generating analyst take")
+        log.exception("Gemini API call failed while generating analyst take")
         return None
 
-    if response.stop_reason == "refusal":
-        # Claude's safety filters occasionally decline for no real reason, treated the same as no response.
-        return None
-
-    return next((block.text for block in response.content if block.type == "text"), None)
+    text = getattr(response, "text", None)
+    return text.strip() if text else None
 
 
 async def generate_analyst_take(
@@ -83,5 +82,5 @@ async def generate_analyst_take(
         return None
 
     prompt = _build_prompt(ticker, name, quote, trends, target_mean, news)
-    # The Anthropic SDK blocks too, same reason every other API call here runs on a thread.
+    # The Gemini SDK blocks too, same reason every other API call here runs on a thread.
     return await asyncio.to_thread(_generate_sync, prompt)

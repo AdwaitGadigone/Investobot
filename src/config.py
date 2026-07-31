@@ -14,7 +14,7 @@ DEV_GUILD_ID = os.getenv("DEV_GUILD_ID") or None
 
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY") or None
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or None
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or None
 
 # The single channel every server-wide auto update gets posted to.
 UPDATES_CHANNEL_ID = os.getenv("UPDATES_CHANNEL_ID") or None
@@ -27,8 +27,8 @@ CHECK_INTERVAL_MINUTES = 15
 # A stock has to move at least this percent since yesterday's close to count as a "big move".
 BIG_MOVE_THRESHOLD_PCT = 5.0
 
-# Sonnet over the cheaper Haiku model, since writing quality actually matters for this summary.
-ANALYST_TAKE_MODEL = "claude-sonnet-5"
+# Gemini's free tier has no billing requirement at all, which is what /rating's AI take runs on.
+ANALYST_TAKE_MODEL = "gemini-2.5-flash"
 
 # Fail loudly right away instead of a confusing crash later when the bot tries to log in.
 if not DISCORD_TOKEN:

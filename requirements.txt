@@ -4,5 +4,5 @@ finnhub-python>=2.4.20
 python-dotenv>=1.0.1
 aiosqlite>=0.20.0
 matplotlib>=3.9.0
-anthropic>=0.68.0
+google-genai>=0.5.0
 requests>=2.31
