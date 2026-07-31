@@ -30,6 +30,10 @@ BIG_MOVE_THRESHOLD_PCT = 5.0
 # Gemini's free tier has no billing requirement at all, which is what /rating's AI take runs on.
 ANALYST_TAKE_MODEL = "gemini-flash-latest"
 
+# Same free model, used instead for the @mention chat feature, kept as its own setting
+# in case the two features ever need to be tuned differently down the line.
+CHAT_MODEL = "gemini-flash-latest"
+
 # Fail loudly right away instead of a confusing crash later when the bot tries to log in.
 if not DISCORD_TOKEN:
     raise RuntimeError("DISCORD_TOKEN is not set. Copy .env.example to .env and fill it in.")
