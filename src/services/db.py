@@ -30,12 +30,6 @@ CREATE TABLE IF NOT EXISTS alerts (
     active INTEGER NOT NULL DEFAULT 1
 );
 
-CREATE TABLE IF NOT EXISTS seen_news (
-    guild_id INTEGER NOT NULL,
-    news_id TEXT NOT NULL,
-    PRIMARY KEY (guild_id, news_id)
-);
-
 CREATE TABLE IF NOT EXISTS price_target_cache (
     ticker TEXT PRIMARY KEY,
     target_price REAL NOT NULL,
@@ -209,31 +203,6 @@ async def deactivate_alert(alert_id: int) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE alerts SET active = 0 WHERE id = ?", (alert_id,))
         await db.commit()
-
-
-# News dedup, stops the bot reposting the same headline since Finnhub repeats articles on every call.
-
-
-async def is_news_seen(guild_id: int, news_id: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute(
-            "SELECT 1 FROM seen_news WHERE guild_id = ? AND news_id = ?",
-            (guild_id, news_id),
-        )
-        return await cur.fetchone() is not None
-
-
-async def mark_news_seen(guild_id: int, news_id: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        try:
-            await db.execute(
-                "INSERT INTO seen_news (guild_id, news_id) VALUES (?, ?)",
-                (guild_id, news_id),
-            )
-            await db.commit()
-        except aiosqlite.IntegrityError:
-            # Already marked as seen from an earlier check.
-            pass
 
 
 # Alpha Vantage price target cache, their free tier caps out at 25 requests/day total.
