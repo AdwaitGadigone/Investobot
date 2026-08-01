@@ -59,6 +59,11 @@ CREATE TABLE IF NOT EXISTS portfolio (
     cost_basis DOUBLE PRECISION NOT NULL,
     PRIMARY KEY (guild_id, user_id, ticker)
 );
+
+CREATE TABLE IF NOT EXISTS breaking_move_alerts (
+    ticker TEXT PRIMARY KEY,
+    last_alert_date TEXT NOT NULL
+);
 """
 
 
@@ -374,3 +379,23 @@ async def remove_position(guild_id: int, user_id: int, ticker: str) -> bool:
             guild_id, user_id, ticker,
         )
         return _affected(status) > 0
+
+
+# Dedup for the breaking-move scan, one row per ticker (not per server, unlike "tracked"),
+# since it's checking a fixed global list rather than anything a specific server chose.
+
+
+async def get_breaking_alert_date(ticker: str) -> str | None:
+    async with _pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT last_alert_date FROM breaking_move_alerts WHERE ticker = $1", ticker
+        )
+
+
+async def set_breaking_alert_date(ticker: str, date_str: str) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO breaking_move_alerts (ticker, last_alert_date) VALUES ($1, $2) "
+            "ON CONFLICT (ticker) DO UPDATE SET last_alert_date = excluded.last_alert_date",
+            ticker, date_str,
+        )
