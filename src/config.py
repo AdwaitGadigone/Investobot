@@ -1,4 +1,5 @@
 import os
+from datetime import time, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -28,6 +29,11 @@ CHECK_INTERVAL_MINUTES = 15
 
 # A stock has to move at least this percent since yesterday's close to count as a "big move".
 BIG_MOVE_THRESHOLD_PCT = 5.0
+
+# When the daily /digest DM goes out, 8:30 AM Eastern. Written as a fixed UTC time since
+# Discord's scheduler doesn't know about US daylight saving, so this drifts by an hour for
+# a few weeks around the two DST changes each year, close enough for a morning summary.
+DIGEST_TIME_UTC = time(hour=12, minute=30, tzinfo=timezone.utc)
 
 # Gemini's free tier has no billing requirement at all, which is what /rating's AI take runs on.
 ANALYST_TAKE_MODEL = "gemini-flash-latest"

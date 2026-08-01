@@ -44,6 +44,12 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id BIGINT PRIMARY KEY,
     alerts_role_id BIGINT
 );
+
+CREATE TABLE IF NOT EXISTS digest_optin (
+    guild_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+);
 """
 
 
@@ -243,3 +249,44 @@ async def set_alerts_role_id(guild_id: int, role_id: int) -> None:
             "ON CONFLICT (guild_id) DO UPDATE SET alerts_role_id = excluded.alerts_role_id",
             guild_id, role_id,
         )
+
+
+# Daily digest opt-in, one row per person per server, checked every morning by the scheduler.
+
+
+async def enable_digest(guild_id: int, user_id: int) -> bool:
+    async with _pool.acquire() as conn:
+        try:
+            await conn.execute(
+                "INSERT INTO digest_optin (guild_id, user_id) VALUES ($1, $2)",
+                guild_id, user_id,
+            )
+            return True
+        except asyncpg.UniqueViolationError:
+            return False
+
+
+async def disable_digest(guild_id: int, user_id: int) -> bool:
+    async with _pool.acquire() as conn:
+        status = await conn.execute(
+            "DELETE FROM digest_optin WHERE guild_id = $1 AND user_id = $2",
+            guild_id, user_id,
+        )
+        return _affected(status) > 0
+
+
+async def is_digest_enabled(guild_id: int, user_id: int) -> bool:
+    async with _pool.acquire() as conn:
+        row = await conn.fetchval(
+            "SELECT 1 FROM digest_optin WHERE guild_id = $1 AND user_id = $2",
+            guild_id, user_id,
+        )
+        return row is not None
+
+
+async def all_digest_optins() -> list[tuple[int, int]]:
+    # The scheduler grabs every subscriber across every server in one query, same pattern as
+    # all_tracked_by_guild above.
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch("SELECT guild_id, user_id FROM digest_optin")
+        return [(r["guild_id"], r["user_id"]) for r in rows]
