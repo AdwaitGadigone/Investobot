@@ -4,7 +4,14 @@ from datetime import datetime, timezone
 import discord
 from discord.ext import commands, tasks
 
-from config import BIG_MOVE_THRESHOLD_PCT, CHECK_INTERVAL_MINUTES, DIGEST_TIME_UTC, UPDATES_CHANNEL_ID
+from config import (
+    BIG_MOVE_THRESHOLD_PCT,
+    BREAKING_MOVE_THRESHOLD_PCT,
+    BREAKING_WATCH_TICKERS,
+    CHECK_INTERVAL_MINUTES,
+    DIGEST_TIME_UTC,
+    UPDATES_CHANNEL_ID,
+)
 from cogs.stocks import build_quote_embed
 from services import db, market_data
 
@@ -43,6 +50,7 @@ class Scheduler(commands.Cog):
     @tasks.loop(minutes=CHECK_INTERVAL_MINUTES)
     async def check_loop(self):
         await self._check_movers()
+        await self._check_breaking_moves()
         await self._check_alerts()
 
     # before_loop runs once before the very first iteration of the loop above.
@@ -109,6 +117,38 @@ class Scheduler(commands.Cog):
                     embed.title = f"📈 Big move: {embed.title}" if quote["change"] >= 0 else f"📉 Big move: {embed.title}"
                     await channel.send(content=ping, embed=embed)
                     await db.set_last_alert_date(guild_id, ticker, today)
+
+    async def _check_breaking_moves(self):
+        # Catches a genuinely wild move on a well-known stock even if nobody bothered to
+        # /track it, e.g. a mega-cap jumping 20%+ in a day is news on its own.
+        channel = await self._updates_channel()
+        if channel is None:
+            return
+
+        tracked_by_guild = await db.all_tracked_by_guild()
+        # Anything already tracked gets covered by _check_movers above at a lower threshold,
+        # scanning it again here would just mean two alerts for the same move.
+        already_tracked = {t for tickers in tracked_by_guild.values() for t in tickers}
+        today = datetime.now(timezone.utc).date().isoformat()
+
+        for ticker in BREAKING_WATCH_TICKERS:
+            if ticker in already_tracked:
+                continue
+
+            try:
+                quote = await market_data.get_quote(ticker)
+            except Exception:
+                log.exception("Failed to fetch quote for breaking-move check on %s", ticker)
+                continue
+
+            last_alert = await db.get_breaking_alert_date(ticker)
+            if abs(quote["change_pct"]) >= BREAKING_MOVE_THRESHOLD_PCT and last_alert != today:
+                embed = build_quote_embed(quote)
+                direction = "📈" if quote["change"] >= 0 else "📉"
+                embed.title = f"{direction} Breaking move: {embed.title}"
+                embed.set_footer(text="Data: Yahoo Finance (delayed) • not on anyone's tracked list, just a huge move")
+                await channel.send(embed=embed)
+                await db.set_breaking_alert_date(ticker, today)
 
     async def _check_alerts(self):
         alerts = await db.get_active_alerts()

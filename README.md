@@ -25,10 +25,13 @@ tracking makes a big move.
 
 Every 15 minutes, Investo scans the server's tracked list for big price moves (5% or
 more since yesterday's close) and posts them straight to a channel, pinging the Stock
-Alerts role if anyone's opted in with `/notify`. (An earlier version also auto-posted
-every news article for a ticker, which flooded the channel for anything heavily
-covered, like a stock during earnings week, so that part was removed. `/news` still
-works fine for checking headlines on demand.)
+Alerts role if anyone's opted in with `/notify`. It also separately watches a fixed list
+of well-known, popular tickers (mega-caps, frequently-in-the-news names) for genuinely
+wild moves, 15% or more, even if nobody's tracking them, so something like a huge
+single-day spike still gets caught without needing anyone to `/track` it first.
+(An earlier version also auto-posted every news article for a ticker, which flooded the
+channel for anything heavily covered, like a stock during earnings week, so that part
+was removed. `/news` still works fine for checking headlines on demand.)
 
 ### Ask it anything
 

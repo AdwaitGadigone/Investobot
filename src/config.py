@@ -30,6 +30,29 @@ CHECK_INTERVAL_MINUTES = 15
 # A stock has to move at least this percent since yesterday's close to count as a "big move".
 BIG_MOVE_THRESHOLD_PCT = 5.0
 
+# A much higher threshold used only by the breaking-move check below, this scans a fixed
+# list of well-known tickers nobody has to track, so it should only fire on genuinely wild
+# days (a stock people recognize jumping 15%+ in a day is rare and newsworthy on its own).
+BREAKING_MOVE_THRESHOLD_PCT = 15.0
+
+# A fixed list of big, widely recognized tickers to scan for breaking moves even if nobody's
+# tracking them. Deliberately not exhaustive, scanning every ticker on the market would be
+# slow and likely trip API rate limits, this is just the names people would actually
+# recognize and care about if they suddenly spiked or crashed.
+BREAKING_WATCH_TICKERS = [
+    # "Magnificent 7" plus other mega-cap tech
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "NFLX", "AMD", "INTC",
+    "ADBE", "CRM", "ORCL", "IBM", "CSCO", "QCOM", "AVGO", "PYPL", "UBER", "SHOP",
+    # Popular retail/consumer names
+    "DIS", "NKE", "SBUX", "MCD", "WMT", "KO", "PEP", "COST",
+    # Names that are frequently in the news or popular with retail traders
+    "GME", "AMC", "PLTR", "COIN", "SOFI", "RIVN", "LCID", "SNAP",
+    # Finance and other large caps
+    "JPM", "GS", "V", "MA", "BRK-B", "XOM", "CVX", "PFE", "JNJ", "UNH",
+    # Other large, widely known names
+    "BABA", "TSM", "SONY", "T", "VZ", "BA",
+]
+
 # When the daily /digest DM goes out, 8:30 AM Eastern. Written as a fixed UTC time since
 # Discord's scheduler doesn't know about US daylight saving, so this drifts by an hour for
 # a few weeks around the two DST changes each year, close enough for a morning summary.
