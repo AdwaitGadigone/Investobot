@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 
 import finnhub
@@ -158,6 +159,172 @@ def _fetch_company_news_sync(ticker: str, days_back: int) -> list[dict]:
 
 async def get_company_news(ticker: str, days_back: int = 3) -> list[dict]:
     return await asyncio.to_thread(_fetch_company_news_sync, ticker, days_back)
+
+
+# Mirrors investo-web's discover.js exactly, so the bot and site never disagree on rankings.
+
+
+def _screener_by_market_cap_sync(scr_id: str, count: int = 40, limit: int = 5) -> list[dict]:
+    try:
+        result = yf.screen(scr_id, count=count)
+    except Exception:
+        return []
+
+    quotes = [
+        q
+        for q in result.get("quotes", [])
+        if q.get("symbol")
+        and (q.get("shortName") or q.get("longName"))
+        and q.get("regularMarketPrice") is not None
+        and q.get("marketCap") is not None
+    ]
+    quotes.sort(key=lambda q: q["marketCap"], reverse=True)
+
+    return [
+        {
+            "ticker": q["symbol"],
+            "name": q.get("shortName") or q.get("longName"),
+            "price": q["regularMarketPrice"],
+            "change": q.get("regularMarketChange") or 0.0,
+            "change_pct": q.get("regularMarketChangePercent") or 0.0,
+        }
+        for q in quotes[:limit]
+    ]
+
+
+def _most_active_sync(count: int = 25, limit: int = 25) -> list[dict]:
+    try:
+        result = yf.screen("most_actives", count=count)
+    except Exception:
+        return []
+
+    quotes = [
+        q
+        for q in result.get("quotes", [])
+        if q.get("symbol") and (q.get("shortName") or q.get("longName")) and q.get("regularMarketPrice") is not None
+    ]
+
+    return [
+        {
+            "ticker": q["symbol"],
+            "name": q.get("shortName") or q.get("longName"),
+            "price": q["regularMarketPrice"],
+            "change": q.get("regularMarketChange"),
+            "change_pct": q.get("regularMarketChangePercent"),
+        }
+        for q in quotes[:limit]
+    ]
+
+
+_PERIOD_DAYS = {"week": 7, "month": 30, "three_month": 90, "year": 365, "five_year": 365 * 5}
+
+# Shared by /movers and /performers, an hour-old cache is fine for 25 tickers of history.
+_universe_cache: dict | None = None
+_universe_cache_time: float = 0.0
+_UNIVERSE_CACHE_TTL = 60 * 60
+
+
+def _closest_point(points: list[tuple[float, float]], target_time: float) -> tuple[float, float]:
+    return min(points, key=lambda p: abs(p[0] - target_time))
+
+
+def _weekly_history_sync(ticker: str) -> list[tuple[float, float]] | None:
+    try:
+        history = yf.Ticker(ticker).history(period="5y", interval="1wk")
+        if history.empty:
+            return None
+        return [(idx.timestamp(), float(close)) for idx, close in history["Close"].items()]
+    except Exception:
+        return None
+
+
+async def _get_ranked_universe() -> dict:
+    global _universe_cache, _universe_cache_time
+    now = time.time()
+    if _universe_cache and now - _universe_cache_time < _UNIVERSE_CACHE_TTL:
+        return _universe_cache
+
+    universe = await asyncio.to_thread(_most_active_sync, 25, 25)
+    now_time = datetime.now(timezone.utc).timestamp()
+
+    histories = await asyncio.gather(*[asyncio.to_thread(_weekly_history_sync, u["ticker"]) for u in universe])
+
+    valid = []
+    for u, points in zip(universe, histories):
+        if not points:
+            continue
+        # Drop bars under 6 days old, Yahoo's newest weekly bar is just today's live price.
+        completed = [p for p in points if now_time - p[0] > 6 * 24 * 60 * 60]
+        if len(completed) < 2:
+            continue
+
+        changes = {}
+        for key, days in _PERIOD_DAYS.items():
+            _, past_value = _closest_point(completed, now_time - days * 24 * 60 * 60)
+            amount = (u["price"] - past_value) if past_value else 0.0
+            pct = (amount / past_value * 100) if past_value else 0.0
+            changes[key] = {"amount": amount, "pct": pct}
+
+        valid.append({**u, "changes": changes})
+
+    result = {"universe": universe, "valid": valid}
+    _universe_cache = result
+    _universe_cache_time = now
+    return result
+
+
+def _period_row(entry: dict, period: str) -> dict:
+    return {
+        "ticker": entry["ticker"],
+        "name": entry["name"],
+        "price": entry["price"],
+        "change": entry["changes"][period]["amount"],
+        "change_pct": entry["changes"][period]["pct"],
+    }
+
+
+async def get_top_performers() -> dict:
+    # "day" skips the history fetch, the screener already gives today's change directly.
+    data = await _get_ranked_universe()
+    universe, valid = data["universe"], data["valid"]
+
+    ranked = {
+        "day": sorted(
+            [u for u in universe if u.get("change_pct") is not None],
+            key=lambda u: u["change_pct"],
+            reverse=True,
+        )[:5]
+    }
+
+    for period in _PERIOD_DAYS:
+        ranked[period] = [
+            _period_row(r, period) for r in sorted(valid, key=lambda r: r["changes"][period]["pct"], reverse=True)[:5]
+        ]
+
+    return ranked
+
+
+async def get_market_movers() -> dict:
+    # Non-"day" periods reuse the ranked universe, there's no "week_gainers" screener to pull from.
+    day_gainers, day_losers, active, universe_data = await asyncio.gather(
+        asyncio.to_thread(_screener_by_market_cap_sync, "day_gainers"),
+        asyncio.to_thread(_screener_by_market_cap_sync, "day_losers"),
+        asyncio.to_thread(lambda: _most_active_sync(25, 5)),
+        _get_ranked_universe(),
+    )
+
+    movers = {"day": {"gainers": day_gainers, "losers": day_losers, "active": active}}
+    valid = universe_data["valid"]
+
+    for period in _PERIOD_DAYS:
+        sorted_by_period = sorted(valid, key=lambda r: r["changes"][period]["pct"], reverse=True)
+        movers[period] = {
+            "gainers": [_period_row(r, period) for r in sorted_by_period[:5]],
+            "losers": [_period_row(r, period) for r in sorted_by_period[-5:][::-1]],
+            "active": active,
+        }
+
+    return movers
 
 
 def summarize_recommendation(trends: dict | None) -> tuple[str, str] | None:
