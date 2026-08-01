@@ -14,6 +14,7 @@ log = logging.getLogger("investo")
 # Every cog (feature file) the bot loads on startup, add new ones here as the bot grows.
 INITIAL_EXTENSIONS = (
     "cogs.stocks",
+    "cogs.movers",
     "cogs.watchlist",
     "cogs.analyst",
     "cogs.news",

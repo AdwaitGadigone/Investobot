@@ -12,6 +12,13 @@ SECTIONS = [
         "1 Day, 1 Week, 1 Month (default), 3 Months, 6 Months, Year to Date, 1 Year, or 5 Years.",
     ),
     (
+        "📈 Market Movers",
+        "`/movers` - today's (or this week's/month's/3 months'/year's/5 years', pick from the "
+        "dropdown) top gainers, top losers, and most active stocks, filtered to real, well-known "
+        "companies. Toggle between the three with the buttons underneath, same data as the "
+        "website's Market Movers panel.",
+    ),
+    (
         "⭐ Analyst Ratings",
         "`/rating <ticker>` - the full buy/hold/sell breakdown from Wall Street analysts, the "
         "average price target, and an AI-written take explaining why the rating looks the way it "
