@@ -36,6 +36,14 @@ SECTIONS = [
         "`/track list` - show what the server is tracking",
     ),
     (
+        "💼 Your Portfolio (shares you actually own)",
+        "`/portfolio buy <ticker> <shares> <price>` - log a buy, blends into your average cost "
+        "if you already hold some\n"
+        "`/portfolio sell <ticker> <shares>` - log a sell, reduces or closes the position\n"
+        "`/portfolio remove <ticker>` - fully clear a position\n"
+        "`/portfolio view` - see every holding with live profit/loss, plus your totals",
+    ),
+    (
         "🔔 Alerts & Notifications",
         "`/alert set <ticker> <above/below> <price>` - get DM'd the moment a ticker crosses that price\n"
         "`/alert list` - show your alerts and their ID numbers\n"

@@ -50,6 +50,15 @@ CREATE TABLE IF NOT EXISTS digest_optin (
     user_id BIGINT NOT NULL,
     PRIMARY KEY (guild_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS portfolio (
+    guild_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    ticker TEXT NOT NULL,
+    shares DOUBLE PRECISION NOT NULL,
+    cost_basis DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (guild_id, user_id, ticker)
+);
 """
 
 
@@ -290,3 +299,78 @@ async def all_digest_optins() -> list[tuple[int, int]]:
     async with _pool.acquire() as conn:
         rows = await conn.fetch("SELECT guild_id, user_id FROM digest_optin")
         return [(r["guild_id"], r["user_id"]) for r in rows]
+
+
+# Personal portfolio, shares someone actually owns, separate from /watchlist which has no
+# position attached. cost_basis is a weighted average, not a list of individual purchases.
+
+
+async def get_portfolio(guild_id: int, user_id: int) -> list[tuple]:
+    async with _pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT ticker, shares, cost_basis FROM portfolio "
+            "WHERE guild_id = $1 AND user_id = $2 ORDER BY ticker",
+            guild_id, user_id,
+        )
+
+
+async def buy_position(guild_id: int, user_id: int, ticker: str, shares: float, price: float) -> None:
+    async with _pool.acquire() as conn:
+        existing = await conn.fetchrow(
+            "SELECT shares, cost_basis FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
+            guild_id, user_id, ticker,
+        )
+        if existing:
+            # Blends the new buy into one weighted average cost, instead of tracking every
+            # individual purchase as its own separate lot.
+            total_shares = existing["shares"] + shares
+            total_cost = existing["shares"] * existing["cost_basis"] + shares * price
+            new_cost_basis = total_cost / total_shares
+            await conn.execute(
+                "UPDATE portfolio SET shares = $1, cost_basis = $2 "
+                "WHERE guild_id = $3 AND user_id = $4 AND ticker = $5",
+                total_shares, new_cost_basis, guild_id, user_id, ticker,
+            )
+        else:
+            await conn.execute(
+                "INSERT INTO portfolio (guild_id, user_id, ticker, shares, cost_basis) "
+                "VALUES ($1, $2, $3, $4, $5)",
+                guild_id, user_id, ticker, shares, price,
+            )
+
+
+async def sell_position(guild_id: int, user_id: int, ticker: str, shares: float) -> str:
+    # Returns "ok", "not_found", or "too_many" so the cog can show a specific error message.
+    async with _pool.acquire() as conn:
+        existing = await conn.fetchrow(
+            "SELECT shares FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
+            guild_id, user_id, ticker,
+        )
+        if not existing:
+            return "not_found"
+        if shares > existing["shares"]:
+            return "too_many"
+
+        remaining = existing["shares"] - shares
+        # A tiny epsilon guards against floating point dust after repeated fractional trades,
+        # e.g. 10.0 - 10.0 landing on 0.0000000001 instead of exactly 0.
+        if remaining <= 1e-9:
+            await conn.execute(
+                "DELETE FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
+                guild_id, user_id, ticker,
+            )
+        else:
+            await conn.execute(
+                "UPDATE portfolio SET shares = $1 WHERE guild_id = $2 AND user_id = $3 AND ticker = $4",
+                remaining, guild_id, user_id, ticker,
+            )
+        return "ok"
+
+
+async def remove_position(guild_id: int, user_id: int, ticker: str) -> bool:
+    async with _pool.acquire() as conn:
+        status = await conn.execute(
+            "DELETE FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
+            guild_id, user_id, ticker,
+        )
+        return _affected(status) > 0
