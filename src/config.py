@@ -19,7 +19,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or None
 # The single channel every server-wide auto update gets posted to.
 UPDATES_CHANNEL_ID = os.getenv("UPDATES_CHANNEL_ID") or None
 
-DB_PATH = ROOT_DIR / "data" / "investo.db"
+# Supabase's Postgres connection string (transaction pooler URI), replaces the old local
+# SQLite file, which got wiped every time bot-hosting.net redeployed the container.
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # How often, in minutes, the scheduler checks tracked tickers, news, and price alerts.
 CHECK_INTERVAL_MINUTES = 15
@@ -37,3 +39,5 @@ CHAT_MODEL = "gemini-flash-latest"
 # Fail loudly right away instead of a confusing crash later when the bot tries to log in.
 if not DISCORD_TOKEN:
     raise RuntimeError("DISCORD_TOKEN is not set. Copy .env.example to .env and fill it in.")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set. Copy .env.example to .env and fill it in.")
