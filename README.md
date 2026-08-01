@@ -17,6 +17,7 @@ tracking makes a big move.
 | `/track add \| remove \| list` | The server's shared tracked list, this is what the automatic updates below actually scan. `add` takes multiple tickers at once too |
 | `/alert set \| list \| remove` | DMs you the moment a ticker crosses a price you choose |
 | `/notify` | Toggles the Stock Alerts role, so you get pinged whenever the automatic updates post something |
+| `/digest` | Toggles a personal DM every morning summarizing your watchlist's overnight moves |
 | `/help` | One clean panel explaining everything above |
 
 ### Automatic updates

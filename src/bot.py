@@ -20,6 +20,7 @@ INITIAL_EXTENSIONS = (
     "cogs.alerts",
     "cogs.scheduler",
     "cogs.notify",
+    "cogs.digest",
     "cogs.help",
     "cogs.chat",
 )

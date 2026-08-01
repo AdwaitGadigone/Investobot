@@ -40,7 +40,8 @@ SECTIONS = [
         "`/alert set <ticker> <above/below> <price>` - get DM'd the moment a ticker crosses that price\n"
         "`/alert list` - show your alerts and their ID numbers\n"
         "`/alert remove <alert_id>` - cancel one\n"
-        "`/notify` - toggle the Stock Alerts role, anyone with it gets pinged on the automatic updates below",
+        "`/notify` - toggle the Stock Alerts role, anyone with it gets pinged on the automatic updates below\n"
+        "`/digest` - toggle a daily DM summarizing your watchlist, sent every morning",
     ),
     (
         "🔁 Automatic Updates",
