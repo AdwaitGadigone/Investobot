@@ -31,19 +31,26 @@ def _range_bar(current: float, low: float | None, high: float | None, width: int
     return f"${low:,.2f}  {bar}  ${high:,.2f}"
 
 
+def _ansi_change_line(quote: dict, is_up: bool) -> str:
+    # Discord embeds have no normal way to color text, but a fenced code block tagged
+    # "ansi" renders real ANSI colors on desktop/web (mobile just shows it as plain
+    # monospace text instead, still readable, just not colored there).
+    esc = chr(27)  # the actual ANSI escape control character
+    arrow = "▲" if is_up else "▼"
+    color_code = "32" if is_up else "31"  # 32 = green, 31 = red
+    reset = f"{esc}[0m"
+    colored = f"{esc}[1;{color_code}m{arrow} {quote['change']:+.2f} ({quote['change_pct']:+.2f}%){reset}"
+    return f"```ansi\n{colored} today, prev close ${quote['prev_close']:,.2f}\n```"
+
+
 def build_quote_embed(quote: dict) -> discord.Embed:
     # Also reused by cogs/scheduler.py, so the automatic alerts look the same as /stock.
     is_up = quote["change"] >= 0
     color = discord.Color.green() if is_up else discord.Color.red()
-    arrow = "▲" if is_up else "▼"
 
     embed = discord.Embed(
         title=f"{quote['name']} ({quote['ticker']})",
-        description=(
-            f"### ${quote['price']:,.2f}\n"
-            f"{arrow} **{quote['change']:+.2f} ({quote['change_pct']:+.2f}%)** today, "
-            f"prev close ${quote['prev_close']:,.2f}"
-        ),
+        description=f"### ${quote['price']:,.2f}\n{_ansi_change_line(quote, is_up)}",
         color=color,
     )
 

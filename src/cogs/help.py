@@ -23,14 +23,15 @@ SECTIONS = [
     ),
     (
         "👀 Your Watchlist (private, just for you)",
-        "`/watchlist add <ticker>` - add a ticker to your own list\n"
+        "`/watchlist add <tickers>` - add one or more tickers to your own list, separate multiple "
+        "with commas or spaces, e.g. `AAPL, MSFT, NVDA`\n"
         "`/watchlist remove <ticker>` - take one off\n"
         "`/watchlist list` - show what's on it",
     ),
     (
         "🌐 Server Tracked List (shared by everyone)",
-        "`/track add <ticker>` - add a ticker to the server-wide list, this is what the automatic "
-        "updates below actually scan\n"
+        "`/track add <tickers>` - add one or more tickers to the server-wide list, separate multiple "
+        "with commas or spaces, this is what the automatic updates below actually scan\n"
         "`/track remove <ticker>` - stop tracking a ticker\n"
         "`/track list` - show what the server is tracking",
     ),
