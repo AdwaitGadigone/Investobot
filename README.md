@@ -13,8 +13,8 @@ tracking makes a big move.
 | `/stock <ticker> [range]` | Price, day/52wk range, volume, market cap, a price+volume chart, and the analyst consensus, all in one embed. A dropdown under the reply lets you flip between 1D / 1W / 1M / 3M / 6M / YTD / 1Y / 5Y without re-running the command |
 | `/rating <ticker>` | The full analyst buy/hold/sell breakdown, the average price target, and an AI-written "Analyst Take" explaining *why* the rating looks the way it does |
 | `/news <ticker>` | The 5 most recent headlines for a ticker, each with a link |
-| `/watchlist add \| remove \| list` | Your own private watchlist, visible only to you |
-| `/track add \| remove \| list` | The server's shared tracked list, this is what the automatic updates below actually scan |
+| `/watchlist add \| remove \| list` | Your own private watchlist, visible only to you. `add` takes multiple tickers at once, separated by commas or spaces |
+| `/track add \| remove \| list` | The server's shared tracked list, this is what the automatic updates below actually scan. `add` takes multiple tickers at once too |
 | `/alert set \| list \| remove` | DMs you the moment a ticker crosses a price you choose |
 | `/notify` | Toggles the Stock Alerts role, so you get pinged whenever the automatic updates post something |
 | `/help` | One clean panel explaining everything above |
