@@ -13,8 +13,7 @@ log = logging.getLogger("investo.chat_ai")
 # Stays None without a key, so the @mention feature just goes quiet instead of crashing.
 _client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-# Casual and conversational on purpose, this is friends chatting, not a compliance-heavy
-# financial product, but it's still told to be upfront when it doesn't have live data.
+# Casual and conversational on purpose, friends chatting rather than a compliance-heavy product.
 SYSTEM_PROMPT = (
     "You are Investo (aka Investopedo), a friendly and highly knowledgeable stock market and investing "
     "assistant living inside a Discord server for a group of friends. People will @ "
@@ -50,8 +49,7 @@ _BARE_TICKER_RE = re.compile(r"\b[A-Z]{2,5}\b")
 
 
 def _extract_tickers(text: str, limit: int = 3) -> list[str]:
-    # $-prefixed tickers go first since they're an explicit, reliable signal, but a bare
-    # ticker mentioned alongside one (like "$AAPL and TSLA") still needs to be picked up.
+    # $-prefixed tickers go first, but a bare one alongside them (e.g. "$AAPL and TSLA") still gets picked up.
     dollar_matches = [m.upper() for m in _DOLLAR_TICKER_RE.findall(text)]
     bare_matches = [m for m in _BARE_TICKER_RE.findall(text) if m not in _EXCLUDED_WORDS]
 
@@ -63,8 +61,7 @@ def _extract_tickers(text: str, limit: int = 3) -> list[str]:
 
 
 async def _gather_ticker_context(tickers: list[str]) -> str:
-    # Grounds the model in a real price and real headlines instead of letting it guess or
-    # invent a reason from training data, this is what makes "why did it move" answers reliable.
+    # Grounds the model in a real price and headlines, instead of letting it invent a reason from training data.
     lines = []
     for ticker in tickers:
         try:
@@ -95,9 +92,7 @@ def _generate_sync(prompt: str) -> str | None:
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
-                # Gemini's internal "thinking" step counts against this same budget and this
-                # model can't turn thinking off, so 800 wasn't enough headroom and answers were
-                # cutting off mid-sentence. Same fix as /rating's analyst take.
+                # Same fix as /rating's analyst take: this model's thinking step eats into this budget too.
                 max_output_tokens=2048,
             ),
         )
@@ -113,8 +108,7 @@ async def generate_chat_reply(question: str, prior_reply: str | None = None) -> 
     if not _client:
         return None
 
-    # Scanning the prior message too is what makes a bare "why" work when replying to a
-    # big-move alert, the question alone has no ticker in it, the alert's title does.
+    # Scanning the prior message too is what makes a bare "why" work replying to a big-move alert, whose title has the ticker.
     search_text = f"{prior_reply}\n{question}" if prior_reply else question
     tickers = _extract_tickers(search_text)
     ticker_context = await _gather_ticker_context(tickers) if tickers else ""

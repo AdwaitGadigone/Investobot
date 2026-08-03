@@ -3,8 +3,9 @@ import logging
 
 import discord
 from discord.ext import commands
+from discord.http import Route
 
-from config import DEV_GUILD_ID, DISCORD_TOKEN
+from config import DEV_GUILD_ID, DISCORD_TOKEN, WEBSITE_URL
 from services.db import init_db
 
 # Sets up basic console logging so we can see what the bot is doing while it runs.
@@ -31,15 +32,16 @@ INITIAL_EXTENSIONS = (
 class InvestoBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
-        # Needed so cogs/chat.py can actually read what someone typed when they @ mention
-        # the bot, not just that a mention happened. This is a privileged intent, it also
-        # has to be turned on in the Discord Developer Portal (Bot page) or login will fail.
+        # Needed so cogs/chat.py can read message text on @ mentions, a privileged intent that also has to be enabled in the Developer Portal or login fails.
         intents.message_content = True
-        super().__init__(command_prefix="!", intents=intents)
+        # Shows up under the bot's name in every server's member list, points people at the site.
+        activity = discord.Activity(type=discord.ActivityType.watching, name=f"stocks on {WEBSITE_URL.removeprefix('https://')}")
+        super().__init__(command_prefix="!", intents=intents, activity=activity)
 
     async def setup_hook(self):
         # setup_hook runs once automatically, right after login but before the bot starts handling events.
         await init_db()
+        await self._update_about_me()
 
         for ext in INITIAL_EXTENSIONS:
             await self.load_extension(ext)
@@ -55,6 +57,14 @@ class InvestoBot(commands.Bot):
             # A global sync can take up to an hour to show up in every server the bot is in.
             synced = await self.tree.sync()
             log.info("Synced %d global commands (may take up to an hour to propagate)", len(synced))
+
+    async def _update_about_me(self):
+        # Discord.py has no wrapper for this, PATCH applications/@me is a raw call so the "About Me" also plugs the site.
+        description = f"Track stocks, crypto, and more. Same watchlists, portfolio, and alerts on the web at {WEBSITE_URL}"
+        try:
+            await self.http.request(Route("PATCH", "/applications/@me"), json={"description": description})
+        except discord.HTTPException:
+            log.warning("Could not update application description")
 
     async def on_ready(self):
         # Fires once the bot has fully connected to Discord's servers.

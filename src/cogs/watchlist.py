@@ -19,8 +19,7 @@ def _parse_tickers(raw: str, limit: int = 25) -> list[str]:
 
 
 async def _validate_tickers(tickers: list[str]) -> tuple[list[str], list[str]]:
-    # Checks every ticker at once instead of one at a time, so adding 10 tickers doesn't
-    # take 10x as long as adding 1.
+    # Checks every ticker at once instead of one at a time, so adding 10 tickers isn't 10x slower than adding 1.
     results = await asyncio.gather(
         *(market_data.get_quote(t) for t in tickers), return_exceptions=True
     )
@@ -40,8 +39,7 @@ class Watchlist(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # app_commands.Group lets us make "slash command with subcommands", so instead of one
-    # giant /watchlist command with a million options, people get /watchlist add, etc.
+    # app_commands.Group gives "/watchlist add" style subcommands instead of one giant command with a pile of options.
     watchlist_group = app_commands.Group(
         name="watchlist", description="Manage your personal stock watchlist"
     )

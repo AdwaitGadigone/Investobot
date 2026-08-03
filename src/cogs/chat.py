@@ -5,15 +5,13 @@ from discord.ext import commands
 
 from services import chat_ai
 
-# Simple per-user cooldown so an accidental double @mention (or spam) doesn't fire two
-# Gemini calls back to back, stored in memory since it only needs to survive one session.
+# Stops an accidental double @mention (or spam) from firing two Gemini calls back to back.
 _COOLDOWN_SECONDS = 8
 _last_used: dict[int, float] = {}
 
 
 class Chat(commands.Cog):
-    # Lets people @ mention the bot directly in a channel and get an AI reply, instead of
-    # only being able to talk to it through slash commands.
+    # Lets people @ mention the bot in a channel for an AI reply, instead of only via slash commands.
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -29,6 +27,10 @@ class Chat(commands.Cog):
         if now - _last_used.get(message.author.id, 0) < _COOLDOWN_SECONDS:
             return
         _last_used[message.author.id] = now
+        # Prunes stale entries on the way in instead of a separate cleanup task, keeps this dict from growing forever.
+        for user_id, last in list(_last_used.items()):
+            if now - last > _COOLDOWN_SECONDS:
+                del _last_used[user_id]
 
         # Strips both mention formats Discord can send (with or without the "!" for nicknames).
         question = message.content
@@ -54,8 +56,7 @@ class Chat(commands.Cog):
         await message.reply(embed=embed)
 
     async def _get_prior_reply(self, message: discord.Message) -> str | None:
-        # If this message is a reply to one of the bot's own answers, pulling that answer
-        # back in as context is what makes follow-up questions actually feel like a thread.
+        # Pulls the bot's prior answer in as context, so a reply to it feels like a real follow-up.
         if not message.reference or not message.reference.message_id:
             return None
 
@@ -67,10 +68,7 @@ class Chat(commands.Cog):
         if replied.author.id != self.bot.user.id:
             return None
 
-        # Our own replies are embeds, so the actual text lives in the embed, not message.content.
-        # This also covers the automatic big-move alerts, so replying "why" to one of those works,
-        # the title carries the ticker (e.g. "Big move: Apple Inc. (AAPL)") that the description alone
-        # wouldn't have, which is what lets the ticker/news lookup below actually find the right stock.
+        # Our replies are embeds, so the text lives there, not message.content, and the title carries the ticker too.
         if replied.embeds:
             embed = replied.embeds[0]
             parts = [p for p in (embed.title, embed.description) if p]

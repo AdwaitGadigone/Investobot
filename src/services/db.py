@@ -2,8 +2,7 @@ import asyncpg
 
 from config import DATABASE_URL
 
-# One shared pool for the whole bot, opening a fresh connection per query would be slow
-# and Supabase's free tier caps how many connections can be open at once anyway.
+# One shared pool for the whole bot, Supabase's free tier caps how many connections can be open at once.
 _pool: asyncpg.Pool | None = None
 
 _SCHEMA = """
@@ -69,9 +68,7 @@ CREATE TABLE IF NOT EXISTS breaking_move_alerts (
 
 async def init_db() -> None:
     global _pool
-    # statement_cache_size=0 is required for Supabase's connection pooler (Supavisor), it
-    # runs in "transaction mode" which doesn't support the prepared statements asyncpg
-    # normally caches per query, without this every query after the first would error out.
+    # statement_cache_size=0 is required for Supabase's pooler, its transaction mode can't support prepared statements.
     _pool = await asyncpg.create_pool(dsn=DATABASE_URL, min_size=1, max_size=5, statement_cache_size=0)
     async with _pool.acquire() as conn:
         # "IF NOT EXISTS" makes this safe to run on every startup, not just the first one.
@@ -79,14 +76,11 @@ async def init_db() -> None:
 
 
 def _affected(status: str) -> int:
-    # asyncpg returns command results as a status string like "DELETE 1", the row count
-    # is always the last space-separated piece of it.
+    # asyncpg returns results as a status string like "DELETE 1", the row count is always the last piece of it.
     return int(status.split()[-1])
 
 
 # Personal watchlists, scoped per user per server so friends can track different tickers.
-
-
 async def add_to_watchlist(guild_id: int, user_id: int, ticker: str) -> bool:
     async with _pool.acquire() as conn:
         try:
@@ -119,8 +113,6 @@ async def get_watchlist(guild_id: int, user_id: int) -> list[str]:
 
 
 # The server-wide tracked list, this is exactly what cogs/scheduler.py scans for moves.
-
-
 async def add_tracked(guild_id: int, ticker: str, added_by: int) -> bool:
     async with _pool.acquire() as conn:
         try:
@@ -179,12 +171,9 @@ async def set_last_alert_date(guild_id: int, ticker: str, date_str: str) -> None
 
 
 # Price alerts, each belongs to one user and gets deactivated rather than deleted once it triggers.
-
-
 async def add_alert(guild_id: int, user_id: int, ticker: str, direction: str, target_price: float) -> int:
     async with _pool.acquire() as conn:
-        # RETURNING id hands back the row's auto-generated ID, so the user has a short
-        # number to reference later instead of the raw alert row.
+        # RETURNING id hands back the auto-generated ID as a short number the user can reference later.
         return await conn.fetchval(
             "INSERT INTO alerts (guild_id, user_id, ticker, direction, target_price) "
             "VALUES ($1, $2, $3, $4, $5) RETURNING id",
@@ -225,8 +214,6 @@ async def deactivate_alert(alert_id: int) -> None:
 
 
 # Alpha Vantage price target cache, their free tier caps out at 25 requests/day total.
-
-
 async def get_cached_price_target(ticker: str) -> tuple[float, str] | None:
     async with _pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -247,8 +234,6 @@ async def set_cached_price_target(ticker: str, target_price: float, date_str: st
 
 
 # Per-server settings, just the Stock Alerts role for now, set up through /notify.
-
-
 async def get_alerts_role_id(guild_id: int) -> int | None:
     async with _pool.acquire() as conn:
         return await conn.fetchval(
@@ -266,8 +251,6 @@ async def set_alerts_role_id(guild_id: int, role_id: int) -> None:
 
 
 # Daily digest opt-in, one row per person per server, checked every morning by the scheduler.
-
-
 async def enable_digest(guild_id: int, user_id: int) -> bool:
     async with _pool.acquire() as conn:
         try:
@@ -299,17 +282,13 @@ async def is_digest_enabled(guild_id: int, user_id: int) -> bool:
 
 
 async def all_digest_optins() -> list[tuple[int, int]]:
-    # The scheduler grabs every subscriber across every server in one query, same pattern as
-    # all_tracked_by_guild above.
+    # Same one-query-for-everyone pattern as all_tracked_by_guild above.
     async with _pool.acquire() as conn:
         rows = await conn.fetch("SELECT guild_id, user_id FROM digest_optin")
         return [(r["guild_id"], r["user_id"]) for r in rows]
 
 
-# Personal portfolio, shares someone actually owns, separate from /watchlist which has no
-# position attached. cost_basis is a weighted average, not a list of individual purchases.
-
-
+# Personal portfolio, separate from /watchlist which has no position attached, cost_basis is a weighted average.
 async def get_portfolio(guild_id: int, user_id: int) -> list[tuple]:
     async with _pool.acquire() as conn:
         return await conn.fetch(
@@ -326,8 +305,7 @@ async def buy_position(guild_id: int, user_id: int, ticker: str, shares: float, 
             guild_id, user_id, ticker,
         )
         if existing:
-            # Blends the new buy into one weighted average cost, instead of tracking every
-            # individual purchase as its own separate lot.
+            # Blends into one weighted average cost instead of tracking each purchase as its own lot.
             total_shares = existing["shares"] + shares
             total_cost = existing["shares"] * existing["cost_basis"] + shares * price
             new_cost_basis = total_cost / total_shares
@@ -357,8 +335,7 @@ async def sell_position(guild_id: int, user_id: int, ticker: str, shares: float)
             return "too_many"
 
         remaining = existing["shares"] - shares
-        # A tiny epsilon guards against floating point dust after repeated fractional trades,
-        # e.g. 10.0 - 10.0 landing on 0.0000000001 instead of exactly 0.
+        # Epsilon guards against float dust, e.g. 10.0 - 10.0 landing on 0.0000000001 instead of exactly 0.
         if remaining <= 1e-9:
             await conn.execute(
                 "DELETE FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
@@ -381,10 +358,7 @@ async def remove_position(guild_id: int, user_id: int, ticker: str) -> bool:
         return _affected(status) > 0
 
 
-# Dedup for the breaking-move scan, one row per ticker (not per server, unlike "tracked"),
-# since it's checking a fixed global list rather than anything a specific server chose.
-
-
+# Dedup for the breaking-move scan, one row per ticker (not per server), since it checks a fixed global list.
 async def get_breaking_alert_date(ticker: str) -> str | None:
     async with _pool.acquire() as conn:
         return await conn.fetchval(

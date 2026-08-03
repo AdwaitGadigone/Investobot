@@ -18,6 +18,10 @@ class TickerNotFoundError(Exception):
     pass
 
 
+# Company names never change, so this never needs a TTL or eviction like the quote/history caches below.
+_name_cache: dict[str, str] = {}
+
+
 def _fetch_quote_sync(ticker: str) -> dict:
     t = yf.Ticker(ticker)
     info = t.fast_info
@@ -35,12 +39,14 @@ def _fetch_quote_sync(ticker: str) -> dict:
     change = last_price - prev_close
     change_pct = (change / prev_close * 100) if prev_close else 0.0
 
-    long_name = ticker.upper()
-    try:
-        # This is a slower, separate call, falls back to the ticker symbol if it fails.
-        long_name = t.info.get("longName") or t.info.get("shortName") or long_name
-    except Exception:
-        pass
+    long_name = _name_cache.get(ticker.upper(), ticker.upper())
+    if ticker.upper() not in _name_cache:
+        try:
+            # Names don't change, so this slow call only ever runs once per ticker for the process's lifetime.
+            long_name = t.info.get("longName") or t.info.get("shortName") or long_name
+            _name_cache[ticker.upper()] = long_name
+        except Exception:
+            pass
 
     return {
         "ticker": ticker.upper(),
@@ -162,8 +168,6 @@ async def get_company_news(ticker: str, days_back: int = 3) -> list[dict]:
 
 
 # Mirrors investo-web's discover.js exactly, so the bot and site never disagree on rankings.
-
-
 def _screener_by_market_cap_sync(scr_id: str, count: int = 40, limit: int = 5) -> list[dict]:
     try:
         result = yf.screen(scr_id, count=count)
@@ -218,7 +222,7 @@ def _most_active_sync(count: int = 25, limit: int = 25) -> list[dict]:
 
 _PERIOD_DAYS = {"week": 7, "month": 30, "three_month": 90, "year": 365, "five_year": 365 * 5}
 
-# Shared by /movers and /performers, an hour-old cache is fine for 25 tickers of history.
+# Shared by /movers, an hour-old cache is fine for 25 tickers of history.
 _universe_cache: dict | None = None
 _universe_cache_time: float = 0.0
 _UNIVERSE_CACHE_TTL = 60 * 60
@@ -281,27 +285,6 @@ def _period_row(entry: dict, period: str) -> dict:
         "change": entry["changes"][period]["amount"],
         "change_pct": entry["changes"][period]["pct"],
     }
-
-
-async def get_top_performers() -> dict:
-    # "day" skips the history fetch, the screener already gives today's change directly.
-    data = await _get_ranked_universe()
-    universe, valid = data["universe"], data["valid"]
-
-    ranked = {
-        "day": sorted(
-            [u for u in universe if u.get("change_pct") is not None],
-            key=lambda u: u["change_pct"],
-            reverse=True,
-        )[:5]
-    }
-
-    for period in _PERIOD_DAYS:
-        ranked[period] = [
-            _period_row(r, period) for r in sorted(valid, key=lambda r: r["changes"][period]["pct"], reverse=True)[:5]
-        ]
-
-    return ranked
 
 
 async def get_market_movers() -> dict:
