@@ -28,7 +28,7 @@ def _fmt_row(row: dict, index: int) -> str:
     arrow = "🟢" if up else "🔴"
     pct_str = f"{pct:+.2f}%" if pct is not None else "N/A"
     change_str = f" (${change:+.2f})" if change is not None else ""
-    return f"**{index}. {row['ticker']}** — ${row['price']:,.2f}\n{arrow} {pct_str}{change_str} · {row['name']}"
+    return f"**{index}. {row['ticker']}** (${row['price']:,.2f})\n{arrow} {pct_str}{change_str} · {row['name']}"
 
 
 def _build_embed(data: dict, period: str, category: str) -> discord.Embed:
@@ -117,7 +117,8 @@ class Movers(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="movers", description="Today's (or this week's/month's/year's) top gainers, losers, and most active"
+        name="movers",
+        description="Today's (or this week's/month's/3 months'/year's/5 years') top gainers, losers, and most active",
     )
     async def movers(self, interaction: discord.Interaction):
         # Defer buys 15 minutes since a cold cache means fetching 25 tickers of history.

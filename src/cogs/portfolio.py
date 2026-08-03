@@ -1,3 +1,5 @@
+import asyncio
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -6,8 +8,7 @@ from services import db, market_data
 
 
 def _pl_line(ticker: str, shares: float, cost_basis: float, price: float) -> str:
-    # Same ANSI color trick used elsewhere in the bot, green when this position is up,
-    # red when it's down, all in one line per ticker.
+    # Same ANSI color trick used elsewhere in the bot, one line per position.
     esc = chr(27)
     current_value = shares * price
     cost_value = shares * cost_basis
@@ -22,8 +23,7 @@ def _pl_line(ticker: str, shares: float, cost_basis: float, price: float) -> str
 
 
 class Portfolio(commands.Cog):
-    # /portfolio tracks shares someone actually owns with a cost basis, unlike /watchlist
-    # which is just tickers they're interested in with no position attached.
+    # /portfolio tracks shares someone actually owns with a cost basis, unlike /watchlist's bare tickers.
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -87,13 +87,16 @@ class Portfolio(commands.Cog):
             await interaction.followup.send("You don't have any positions yet. Log one with `/portfolio buy`.")
             return
 
+        # Fetched together instead of one at a time, so wall-clock time doesn't scale with position count.
+        quotes = await asyncio.gather(
+            *(market_data.get_quote(ticker) for ticker, _, _ in positions), return_exceptions=True
+        )
+
         lines = []
         total_value = 0.0
         total_cost = 0.0
-        for ticker, shares, cost_basis in positions:
-            try:
-                quote = await market_data.get_quote(ticker)
-            except Exception:
+        for (ticker, shares, cost_basis), quote in zip(positions, quotes):
+            if isinstance(quote, Exception):
                 # A delisted or temporarily broken ticker shouldn't hide the rest of the portfolio.
                 continue
             price = quote["price"]

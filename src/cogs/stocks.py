@@ -32,12 +32,10 @@ def _range_bar(current: float, low: float | None, high: float | None, width: int
 
 
 def _ansi_change_line(quote: dict, is_up: bool) -> str:
-    # Discord embeds have no normal way to color text, but a fenced code block tagged
-    # "ansi" renders real ANSI colors on desktop/web (mobile just shows it as plain
-    # monospace text instead, still readable, just not colored there).
-    esc = chr(27)  # the actual ANSI escape control character
+    # A fenced code block tagged "ansi" renders real colors on desktop/web, mobile just shows plain monospace instead.
+    esc = chr(27)
     arrow = "▲" if is_up else "▼"
-    color_code = "32" if is_up else "31"  # 32 = green, 31 = red
+    color_code = "32" if is_up else "31"
     reset = f"{esc}[0m"
     colored = f"{esc}[1;{color_code}m{arrow} {quote['change']:+.2f} ({quote['change_pct']:+.2f}%){reset}"
     return f"```ansi\n{colored} today, prev close ${quote['prev_close']:,.2f}\n```"
@@ -75,8 +73,7 @@ def build_quote_embed(quote: dict) -> discord.Embed:
 
 
 async def _build_stock_response(ticker: str, range_key: str) -> tuple[discord.Embed, discord.File]:
-    # Shared by the initial /stock reply and by the range dropdown below, so both build the exact
-    # same embed and chart for a given ticker and range, just triggered from two different places.
+    # Shared by the initial /stock reply and the range dropdown below, so both build an identical embed and chart.
     range_opts = charts.RANGE_OPTIONS[range_key]
 
     quote, history, trends, target = await asyncio.gather(
@@ -116,8 +113,7 @@ async def _build_stock_response(ticker: str, range_key: str) -> tuple[discord.Em
 
 
 class RangeSelect(discord.ui.Select):
-    # The dropdown attached under a /stock reply, lets someone flip the chart's timeframe
-    # after the fact instead of having to type /stock again with a different range option.
+    # Lets someone flip the chart's timeframe after the fact instead of retyping /stock with a different range.
 
     def __init__(self, ticker: str, current_range: str):
         self.ticker = ticker

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -19,8 +20,7 @@ log = logging.getLogger("investo.scheduler")
 
 
 def _digest_line(quote: dict) -> str:
-    # Same ANSI color trick as cogs/stocks.py's quote embed, green for up, red for down,
-    # this is one line per ticker inside a single code block in the digest DM.
+    # Same ANSI color trick as cogs/stocks.py's quote embed, one line per ticker in the digest DM.
     esc = chr(27)
     is_up = quote["change_pct"] >= 0
     color_code = "32" if is_up else "31"
@@ -84,10 +84,8 @@ class Scheduler(commands.Cog):
         return channel
 
     async def _check_movers(self):
-        # Only posts price moves here, not individual news articles. A heavily-covered
-        # ticker can have 50+ headlines a day, posting each one separately as its own
-        # message is exactly the kind of flood this used to cause. /news stays available
-        # for checking headlines on demand instead.
+        # Only posts price moves here, not individual news articles, since a heavily-covered ticker
+        # can have 50+ headlines a day and posting each one is the flood this used to cause.
         channel = await self._updates_channel()
         if channel is None:
             return
@@ -95,6 +93,8 @@ class Scheduler(commands.Cog):
         # Fetches every tracked ticker across every server in one go, grouped by server.
         tracked_by_guild = await db.all_tracked_by_guild()
         today = datetime.now(timezone.utc).date().isoformat()
+        # Shared across every guild in this pass, so a ticker tracked by 3 servers is fetched once, not 3 times.
+        quote_cache: dict[str, dict] = {}
 
         for guild_id, tickers in tracked_by_guild.items():
             role_id = await db.get_alerts_role_id(guild_id)
@@ -102,15 +102,17 @@ class Scheduler(commands.Cog):
             ping = f"<@&{role_id}>" if role_id else None
 
             for ticker in tickers:
-                try:
-                    quote = await market_data.get_quote(ticker)
-                except market_data.TickerNotFoundError:
-                    continue
-                except Exception:
-                    # One bad ticker shouldn't stop the rest of the list from being checked.
-                    log.exception("Failed to fetch quote for %s", ticker)
-                    continue
+                if ticker not in quote_cache:
+                    try:
+                        quote_cache[ticker] = await market_data.get_quote(ticker)
+                    except market_data.TickerNotFoundError:
+                        continue
+                    except Exception:
+                        # One bad ticker shouldn't stop the rest of the list from being checked.
+                        log.exception("Failed to fetch quote for %s", ticker)
+                        continue
 
+                quote = quote_cache[ticker]
                 last_alert = await db.get_last_alert_date(guild_id, ticker)
                 if abs(quote["change_pct"]) >= BIG_MOVE_THRESHOLD_PCT and last_alert != today:
                     embed = build_quote_embed(quote)
@@ -119,15 +121,13 @@ class Scheduler(commands.Cog):
                     await db.set_last_alert_date(guild_id, ticker, today)
 
     async def _check_breaking_moves(self):
-        # Catches a genuinely wild move on a well-known stock even if nobody bothered to
-        # /track it, e.g. a mega-cap jumping 20%+ in a day is news on its own.
+        # Catches a genuinely wild move on a well-known stock even if nobody bothered to /track it.
         channel = await self._updates_channel()
         if channel is None:
             return
 
         tracked_by_guild = await db.all_tracked_by_guild()
-        # Anything already tracked gets covered by _check_movers above at a lower threshold,
-        # scanning it again here would just mean two alerts for the same move.
+        # Already covered by _check_movers above at a lower threshold, skip to avoid a double alert.
         already_tracked = {t for tickers in tracked_by_guild.values() for t in tickers}
         today = datetime.now(timezone.utc).date().isoformat()
 
@@ -184,6 +184,8 @@ class Scheduler(commands.Cog):
 
     async def _send_digests(self):
         subscribers = await db.all_digest_optins()
+        # Shared across every subscriber, so overlapping watchlist tickers fetch once, not once per person.
+        quote_cache: dict[str, dict] = {}
 
         for guild_id, user_id in subscribers:
             tickers = await db.get_watchlist(guild_id, user_id)
@@ -191,16 +193,17 @@ class Scheduler(commands.Cog):
                 # Nothing to summarize, skip the DM entirely instead of sending an empty one.
                 continue
 
-            lines = []
-            for ticker in tickers:
-                try:
-                    quote = await market_data.get_quote(ticker)
-                except Exception:
-                    # One bad ticker shouldn't stop the rest of someone's digest from sending.
-                    log.exception("Failed to fetch quote for digest ticker %s", ticker)
-                    continue
-                lines.append(_digest_line(quote))
+            missing = [t for t in tickers if t not in quote_cache]
+            if missing:
+                # Fetched together instead of one at a time, so a slow ticker doesn't hold up the rest.
+                fetched = await asyncio.gather(*(market_data.get_quote(t) for t in missing), return_exceptions=True)
+                for ticker, result in zip(missing, fetched):
+                    if isinstance(result, Exception):
+                        log.exception("Failed to fetch quote for digest ticker %s", ticker, exc_info=result)
+                    else:
+                        quote_cache[ticker] = result
 
+            lines = [_digest_line(quote_cache[t]) for t in tickers if t in quote_cache]
             if not lines:
                 continue
 

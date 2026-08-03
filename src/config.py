@@ -20,9 +20,11 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or None
 # The single channel every server-wide auto update gets posted to.
 UPDATES_CHANNEL_ID = os.getenv("UPDATES_CHANNEL_ID") or None
 
-# Supabase's Postgres connection string (transaction pooler URI), replaces the old local
-# SQLite file, which got wiped every time bot-hosting.net redeployed the container.
+# Supabase's Postgres connection string (transaction pooler URI), the bot's storage since the old local SQLite file got wiped on every bot-hosting.net redeploy.
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Shown in the bot's Discord presence and used anywhere else the bot points people to the site.
+WEBSITE_URL = "https://investoweb.vercel.app"
 
 # How often, in minutes, the scheduler checks tracked tickers, news, and price alerts.
 CHECK_INTERVAL_MINUTES = 15
@@ -30,15 +32,10 @@ CHECK_INTERVAL_MINUTES = 15
 # A stock has to move at least this percent since yesterday's close to count as a "big move".
 BIG_MOVE_THRESHOLD_PCT = 5.0
 
-# A much higher threshold used only by the breaking-move check below, this scans a fixed
-# list of well-known tickers nobody has to track, so it should only fire on genuinely wild
-# days (a stock people recognize jumping 15%+ in a day is rare and newsworthy on its own).
+# Higher than BIG_MOVE_THRESHOLD_PCT since this scans well-known tickers nobody has to track, so it should only fire on genuinely wild, newsworthy days.
 BREAKING_MOVE_THRESHOLD_PCT = 15.0
 
-# A fixed list of big, widely recognized tickers to scan for breaking moves even if nobody's
-# tracking them. Deliberately not exhaustive, scanning every ticker on the market would be
-# slow and likely trip API rate limits, this is just the names people would actually
-# recognize and care about if they suddenly spiked or crashed.
+# Deliberately not every ticker on the market, that would be slow and trip API rate limits, just names people would recognize if they spiked or crashed.
 BREAKING_WATCH_TICKERS = [
     # "Magnificent 7" plus other mega-cap tech
     "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "NFLX", "AMD", "INTC",
@@ -53,16 +50,13 @@ BREAKING_WATCH_TICKERS = [
     "BABA", "TSM", "SONY", "T", "VZ", "BA",
 ]
 
-# When the daily /digest DM goes out, 8:30 AM Eastern. Written as a fixed UTC time since
-# Discord's scheduler doesn't know about US daylight saving, so this drifts by an hour for
-# a few weeks around the two DST changes each year, close enough for a morning summary.
+# 8:30 AM Eastern, written as a fixed UTC time since Discord's scheduler doesn't know about DST, so this drifts an hour for a few weeks twice a year, fine for a morning summary.
 DIGEST_TIME_UTC = time(hour=12, minute=30, tzinfo=timezone.utc)
 
 # Gemini's free tier has no billing requirement at all, which is what /rating's AI take runs on.
 ANALYST_TAKE_MODEL = "gemini-flash-latest"
 
-# Same free model, used instead for the @mention chat feature, kept as its own setting
-# in case the two features ever need to be tuned differently down the line.
+# Same free model, kept as its own setting in case chat and /rating ever need different tuning.
 CHAT_MODEL = "gemini-flash-latest"
 
 # Fail loudly right away instead of a confusing crash later when the bot tries to log in.

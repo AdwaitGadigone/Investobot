@@ -6,8 +6,7 @@ from services import db
 
 
 class Digest(commands.Cog):
-    # /digest lets someone opt in to a personal DM every morning summarizing their watchlist,
-    # the actual sending happens on a schedule in cogs/scheduler.py.
+    # Just the opt-in toggle, the actual daily DM is sent on a schedule in cogs/scheduler.py.
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -22,8 +21,7 @@ class Digest(commands.Cog):
             await interaction.response.send_message("Turned off your daily digest DM.")
             return
 
-        # Sends a test DM before saving anything, so the toggle doesn't claim success for
-        # someone whose DMs are actually closed to server members.
+        # Sends a test DM before saving anything, so this can't claim success for someone whose DMs are closed.
         try:
             await interaction.user.send(
                 "You're signed up for Investo's daily digest. I'll DM you a summary of "

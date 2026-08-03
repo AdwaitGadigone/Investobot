@@ -2,8 +2,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-# Each entry becomes one embed field below, grouped by feature instead of one field per command.
-# This keeps the whole command list to a single embed instead of a wall of separate fields.
+from config import WEBSITE_URL
+
+# Each entry becomes one embed field, grouped by feature instead of one field per command, so the whole list fits in a single embed.
 SECTIONS = [
     (
         "📊 Quotes & Charts",
@@ -79,7 +80,7 @@ def _build_help_embed() -> discord.Embed:
     # One embed, one field per section, this is the entire /help output, no extra clicking needed.
     embed = discord.Embed(
         title="📈 Investo",
-        description="Everything the bot can do, all in one place.",
+        description=f"Everything the bot can do, all in one place. Same data on the web: {WEBSITE_URL}",
         color=discord.Color.blurple(),
     )
 

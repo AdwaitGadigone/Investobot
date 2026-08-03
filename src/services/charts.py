@@ -15,8 +15,7 @@ COLOR_CRITICAL = "#d03b3b"
 COLOR_GRID = "#383835"
 COLOR_TEXT = "#c3c2b7"
 
-# Maps each /stock range choice to the period/interval pair yfinance wants, plus a label.
-# This mirrors the same 1D/1W/1M/3M/6M/YTD/1Y/5Y tabs most stock apps show.
+# Maps each /stock range choice to the period/interval pair yfinance wants, plus a label, mirroring typical stock-app tabs.
 RANGE_OPTIONS = {
     "1d": {"period": "1d", "interval": "5m", "label": "1 Day"},
     "1w": {"period": "5d", "interval": "15m", "label": "1 Week"},
