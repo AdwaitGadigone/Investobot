@@ -3,7 +3,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from config import OWNER_DISCORD_ID
+from config import OWNER_DISCORD_IDS
 
 log = logging.getLogger("investo.owner")
 
@@ -16,7 +16,7 @@ class Owner(commands.Cog):
 
     @commands.command(name="tell", hidden=True)
     async def tell(self, ctx: commands.Context, user_id: int, *, message: str):
-        if ctx.author.id != OWNER_DISCORD_ID:
+        if ctx.author.id not in OWNER_DISCORD_IDS:
             # No reply at all, a wrong-user attempt shouldn't confirm this command even exists.
             return
 
