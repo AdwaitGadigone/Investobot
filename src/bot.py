@@ -26,6 +26,7 @@ INITIAL_EXTENSIONS = (
     "cogs.portfolio",
     "cogs.help",
     "cogs.chat",
+    "cogs.owner",
 )
 
 

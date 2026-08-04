@@ -26,6 +26,9 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # Shown in the bot's Discord presence and used anywhere else the bot points people to the site.
 WEBSITE_URL = "https://investoweb.vercel.app"
 
+# Gates cogs/owner.py's hidden !tell command, only this account can use it.
+OWNER_DISCORD_ID = 534762779626700831
+
 # How often, in minutes, the scheduler checks tracked tickers, news, and price alerts.
 CHECK_INTERVAL_MINUTES = 15
 
