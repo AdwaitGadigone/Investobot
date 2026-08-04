@@ -32,6 +32,38 @@ def _digest_line(quote: dict) -> str:
     )
 
 
+def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote: dict) -> str:
+    # Value + today's move + all-time P/L on one line, same ANSI-color pattern as the watchlist line above.
+    esc = chr(27)
+    reset = f"{esc}[0m"
+    price = quote["price"]
+    value = shares * price
+    cost = shares * cost_basis
+    pl_pct = ((value - cost) / cost * 100) if cost else 0.0
+    color_code = "32" if pl_pct >= 0 else "31"
+    today_arrow = "▲" if quote["change_pct"] >= 0 else "▼"
+    return (
+        f"{esc}[1;{color_code}m{ticker:<6}${value:>9,.2f}  "
+        f"today {today_arrow}{quote['change_pct']:+.2f}%  P/L {pl_pct:+.1f}%{reset}"
+    )
+
+
+def _portfolio_digest_summary(total_value: float, total_today: float, total_pl: float, total_cost: float) -> str:
+    # Sits above the per-position lines, same shape as the "Total value / Today / All-time" cards on the website.
+    esc = chr(27)
+    reset = f"{esc}[0m"
+    today_base = total_value - total_today
+    today_pct = (total_today / today_base * 100) if today_base else 0.0
+    pl_pct = (total_pl / total_cost * 100) if total_cost else 0.0
+    today_color = "32" if total_today >= 0 else "31"
+    pl_color = "32" if total_pl >= 0 else "31"
+    return (
+        f"Total ${total_value:,.2f}\n"
+        f"{esc}[1;{today_color}mToday {total_today:+,.2f} ({today_pct:+.2f}%){reset}\n"
+        f"{esc}[1;{pl_color}mAll-time {total_pl:+,.2f} ({pl_pct:+.1f}%){reset}"
+    )
+
+
 class Scheduler(commands.Cog):
     # The background loop, every CHECK_INTERVAL_MINUTES it checks tracked tickers for big price moves and personal price alerts.
 
@@ -184,35 +216,57 @@ class Scheduler(commands.Cog):
 
     async def _send_digests(self):
         subscribers = await db.all_digest_optins()
-        # Shared across every subscriber, so overlapping watchlist tickers fetch once, not once per person.
+        # Shared across every subscriber, so a ticker on both a watchlist and a portfolio fetches once, not twice.
         quote_cache: dict[str, dict] = {}
 
-        for guild_id, user_id in subscribers:
-            tickers = await db.get_watchlist(guild_id, user_id)
-            if not tickers:
+        async def ensure_quotes(tickers: list[str]) -> None:
+            missing = [t for t in tickers if t not in quote_cache]
+            if not missing:
+                return
+            # Fetched together instead of one at a time, so a slow ticker doesn't hold up the rest.
+            fetched = await asyncio.gather(*(market_data.get_quote(t) for t in missing), return_exceptions=True)
+            for ticker, result in zip(missing, fetched):
+                if isinstance(result, Exception):
+                    log.exception("Failed to fetch quote for digest ticker %s", ticker, exc_info=result)
+                else:
+                    quote_cache[ticker] = result
+
+        for guild_id, user_id, content in subscribers:
+            embed = discord.Embed(title="🌤️ Your Morning Digest", color=discord.Color.blurple())
+
+            if content in ("watchlist", "both"):
+                tickers = await db.get_watchlist(guild_id, user_id)
+                if tickers:
+                    await ensure_quotes(tickers)
+                    lines = [_digest_line(quote_cache[t]) for t in tickers if t in quote_cache]
+                    if lines:
+                        embed.add_field(name="👀 Watchlist", value="```ansi\n" + "\n".join(lines) + "\n```", inline=False)
+
+            if content in ("portfolio", "both"):
+                positions = await db.get_portfolio(guild_id, user_id)
+                if positions:
+                    await ensure_quotes([p["ticker"] for p in positions])
+                    priced = [p for p in positions if p["ticker"] in quote_cache]
+                    if priced:
+                        total_value = sum(p["shares"] * quote_cache[p["ticker"]]["price"] for p in priced)
+                        total_cost = sum(p["shares"] * p["cost_basis"] for p in priced)
+                        total_today = sum(p["shares"] * quote_cache[p["ticker"]]["change"] for p in priced)
+                        summary = _portfolio_digest_summary(total_value, total_today, total_value - total_cost, total_cost)
+                        lines = [
+                            _portfolio_digest_line(p["ticker"], p["shares"], p["cost_basis"], quote_cache[p["ticker"]])
+                            for p in priced
+                        ]
+                        embed.add_field(
+                            name="💼 Portfolio",
+                            value=f"{summary}\n```ansi\n" + "\n".join(lines) + "\n```",
+                            inline=False,
+                        )
+
+            if not embed.fields:
                 # Nothing to summarize, skip the DM entirely instead of sending an empty one.
                 continue
 
-            missing = [t for t in tickers if t not in quote_cache]
-            if missing:
-                # Fetched together instead of one at a time, so a slow ticker doesn't hold up the rest.
-                fetched = await asyncio.gather(*(market_data.get_quote(t) for t in missing), return_exceptions=True)
-                for ticker, result in zip(missing, fetched):
-                    if isinstance(result, Exception):
-                        log.exception("Failed to fetch quote for digest ticker %s", ticker, exc_info=result)
-                    else:
-                        quote_cache[ticker] = result
-
-            lines = [_digest_line(quote_cache[t]) for t in tickers if t in quote_cache]
-            if not lines:
-                continue
-
-            embed = discord.Embed(
-                title="🌤️ Your Morning Watchlist Digest",
-                description="```ansi\n" + "\n".join(lines) + "\n```",
-                color=discord.Color.blurple(),
-            )
-            embed.set_footer(text="Turn this off anytime with /digest")
+            embed.set_footer(text="Change what's included or turn this off anytime with /digest")
 
             try:
                 user = await self.bot.fetch_user(user_id)

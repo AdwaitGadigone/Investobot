@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS guild_settings (
 CREATE TABLE IF NOT EXISTS digest_optin (
     guild_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
+    content TEXT NOT NULL DEFAULT 'watchlist',
     PRIMARY KEY (guild_id, user_id)
 );
 
@@ -73,6 +74,8 @@ async def init_db() -> None:
     async with _pool.acquire() as conn:
         # "IF NOT EXISTS" makes this safe to run on every startup, not just the first one.
         await conn.execute(_SCHEMA)
+        # CREATE TABLE IF NOT EXISTS above only helps fresh databases, existing ones need this to pick up new columns.
+        await conn.execute("ALTER TABLE digest_optin ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT 'watchlist'")
 
 
 def _affected(status: str) -> int:
@@ -251,12 +254,12 @@ async def set_alerts_role_id(guild_id: int, role_id: int) -> None:
 
 
 # Daily digest opt-in, one row per person per server, checked every morning by the scheduler.
-async def enable_digest(guild_id: int, user_id: int) -> bool:
+async def enable_digest(guild_id: int, user_id: int, content: str = "watchlist") -> bool:
     async with _pool.acquire() as conn:
         try:
             await conn.execute(
-                "INSERT INTO digest_optin (guild_id, user_id) VALUES ($1, $2)",
-                guild_id, user_id,
+                "INSERT INTO digest_optin (guild_id, user_id, content) VALUES ($1, $2, $3)",
+                guild_id, user_id, content,
             )
             return True
         except asyncpg.UniqueViolationError:
@@ -272,6 +275,14 @@ async def disable_digest(guild_id: int, user_id: int) -> bool:
         return _affected(status) > 0
 
 
+async def set_digest_content(guild_id: int, user_id: int, content: str) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE digest_optin SET content = $1 WHERE guild_id = $2 AND user_id = $3",
+            content, guild_id, user_id,
+        )
+
+
 async def is_digest_enabled(guild_id: int, user_id: int) -> bool:
     async with _pool.acquire() as conn:
         row = await conn.fetchval(
@@ -281,11 +292,11 @@ async def is_digest_enabled(guild_id: int, user_id: int) -> bool:
         return row is not None
 
 
-async def all_digest_optins() -> list[tuple[int, int]]:
+async def all_digest_optins() -> list[tuple[int, int, str]]:
     # Same one-query-for-everyone pattern as all_tracked_by_guild above.
     async with _pool.acquire() as conn:
-        rows = await conn.fetch("SELECT guild_id, user_id FROM digest_optin")
-        return [(r["guild_id"], r["user_id"]) for r in rows]
+        rows = await conn.fetch("SELECT guild_id, user_id, content FROM digest_optin")
+        return [(r["guild_id"], r["user_id"], r["content"]) for r in rows]
 
 
 # Personal portfolio, separate from /watchlist which has no position attached, cost_basis is a weighted average.
