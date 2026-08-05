@@ -20,7 +20,8 @@ tracking makes a big move. Everything here also lives on a companion website at
 | `/portfolio buy \| sell \| remove \| view` | Track shares you actually own, with a live profit/loss view (average cost basis, blended across buys) |
 | `/alert set \| list \| remove` | DMs you the moment a ticker crosses a price you choose |
 | `/notify` | Toggles the Stock Alerts role, so you get pinged whenever the automatic updates post something |
-| `/digest` | Toggles a personal DM every morning summarizing your watchlist's overnight moves |
+| `/digest [content]` | Toggles a personal DM every morning summarizing your watchlist, portfolio, or both. A dropdown right on the DM lets you switch what it shows afterward too |
+| `/serverdigest set \| off` | Admin-only (Manage Server). Posts a daily digest of the server's tracked list to a channel of your choice, with a switchable time window and a section flagging other big movers |
 | `/help` | One clean panel explaining everything above |
 
 ### Automatic updates

@@ -64,6 +64,13 @@ CREATE TABLE IF NOT EXISTS breaking_move_alerts (
     ticker TEXT PRIMARY KEY,
     last_alert_date TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS server_digest (
+    guild_id BIGINT PRIMARY KEY,
+    channel_id BIGINT NOT NULL,
+    period TEXT NOT NULL DEFAULT 'day',
+    include_movers BOOLEAN NOT NULL DEFAULT TRUE
+);
 """
 
 
@@ -384,3 +391,26 @@ async def set_breaking_alert_date(ticker: str, date_str: str) -> None:
             "ON CONFLICT (ticker) DO UPDATE SET last_alert_date = excluded.last_alert_date",
             ticker, date_str,
         )
+
+
+# One row per server, /serverdigest posts a daily tracked-list summary to whatever channel this points at.
+async def set_server_digest(guild_id: int, channel_id: int, period: str, include_movers: bool) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO server_digest (guild_id, channel_id, period, include_movers) VALUES ($1, $2, $3, $4) "
+            "ON CONFLICT (guild_id) DO UPDATE SET "
+            "channel_id = excluded.channel_id, period = excluded.period, include_movers = excluded.include_movers",
+            guild_id, channel_id, period, include_movers,
+        )
+
+
+async def disable_server_digest(guild_id: int) -> bool:
+    async with _pool.acquire() as conn:
+        status = await conn.execute("DELETE FROM server_digest WHERE guild_id = $1", guild_id)
+        return _affected(status) > 0
+
+
+async def all_server_digests() -> list[dict]:
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch("SELECT guild_id, channel_id, period, include_movers FROM server_digest")
+        return [dict(r) for r in rows]
