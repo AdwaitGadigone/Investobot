@@ -310,6 +310,36 @@ async def get_market_movers() -> dict:
     return movers
 
 
+# Per-ticker, not per-universe: the server digest needs this for arbitrary tracked tickers, not just the top-25.
+_period_change_cache: dict[str, tuple[list[tuple[float, float]], float]] = {}
+_PERIOD_CHANGE_CACHE_TTL = 60 * 60
+
+
+async def get_period_change(ticker: str, period: str) -> dict | None:
+    now = time.time()
+    cached = _period_change_cache.get(ticker)
+    if cached and now - cached[1] < _PERIOD_CHANGE_CACHE_TTL:
+        points = cached[0]
+    else:
+        points = await asyncio.to_thread(_weekly_history_sync, ticker)
+        if not points:
+            return None
+        _period_change_cache[ticker] = (points, now)
+
+    now_time = datetime.now(timezone.utc).timestamp()
+    completed = [p for p in points if now_time - p[0] > 6 * 24 * 60 * 60]
+    days = _PERIOD_DAYS.get(period)
+    if len(completed) < 2 or days is None:
+        return None
+
+    _, past_value = _closest_point(completed, now_time - days * 24 * 60 * 60)
+    latest_value = points[-1][1]
+    if not past_value:
+        return None
+    amount = latest_value - past_value
+    return {"amount": amount, "pct": amount / past_value * 100}
+
+
 def summarize_recommendation(trends: dict | None) -> tuple[str, str] | None:
     # Boils the full breakdown down into one quick label like "Buy" for the main /stock embed.
     if not trends:
