@@ -70,6 +70,35 @@ class Portfolio(commands.Cog):
         else:
             await interaction.response.send_message(f"Logged selling **{shares:g}** shares of **{ticker}**.")
 
+    @portfolio_group.command(name="edit", description="Correct a position's shares or average cost, no blending")
+    @app_commands.describe(
+        ticker="Stock ticker symbol",
+        shares="Correct total share count, leave blank to only change the average cost",
+        avg_cost="Correct average cost per share, leave blank to only change the share count",
+    )
+    async def portfolio_edit(
+        self, interaction: discord.Interaction, ticker: str, shares: float = None, avg_cost: float = None
+    ):
+        ticker = ticker.upper().strip()
+        if shares is None and avg_cost is None:
+            await interaction.response.send_message("Give at least a new share count or average cost to change.")
+            return
+        if (shares is not None and shares <= 0) or (avg_cost is not None and avg_cost <= 0):
+            await interaction.response.send_message("Shares and average cost both need to be positive numbers.")
+            return
+
+        edited = await db.edit_position(interaction.guild_id, interaction.user.id, ticker, shares, avg_cost)
+        if not edited:
+            await interaction.response.send_message(f"You don't have a position in **{ticker}**.")
+            return
+
+        parts = []
+        if shares is not None:
+            parts.append(f"shares to **{shares:g}**")
+        if avg_cost is not None:
+            parts.append(f"average cost to **${avg_cost:,.2f}**")
+        await interaction.response.send_message(f"Updated **{ticker}**: set " + " and ".join(parts) + ".")
+
     @portfolio_group.command(name="remove", description="Fully remove a position, regardless of share count")
     async def portfolio_remove(self, interaction: discord.Interaction, ticker: str):
         ticker = ticker.upper().strip()

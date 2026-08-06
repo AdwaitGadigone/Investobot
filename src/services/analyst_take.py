@@ -5,6 +5,7 @@ from google import genai
 from google.genai import types
 
 from config import ANALYST_TAKE_MODEL, GEMINI_API_KEY
+from services import gemini_limiter
 
 log = logging.getLogger("investo.analyst_take")
 
@@ -80,6 +81,8 @@ async def generate_analyst_take(
     ticker: str, name: str, quote: dict, trends: dict | None, target_mean: float | None, news: list[dict]
 ) -> str | None:
     if not _client:
+        return None
+    if not await gemini_limiter.try_acquire():
         return None
 
     prompt = _build_prompt(ticker, name, quote, trends, target_mean, news)

@@ -26,7 +26,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # Shown in the bot's Discord presence and used anywhere else the bot points people to the site.
 WEBSITE_URL = "https://investoweb.vercel.app"
 
-# Gates cogs/owner.py's hidden !tell command.
+# Gates cogs/owner.py's hidden !tell command. ADD ANYONES ID HERE TO ENABLE THEM!!!!!!!!!
 OWNER_DISCORD_IDS = {
     534762779626700831,
     429115029250375680,  # Hasauce's ID
@@ -64,6 +64,10 @@ ANALYST_TAKE_MODEL = "gemini-flash-latest"
 
 # Same free model, kept as its own setting in case chat and /rating ever need different tuning.
 CHAT_MODEL = "gemini-flash-latest"
+
+# Shared cap across every Gemini call (chat + analyst take), kept under the free tier so nothing ever bills, verify your exact quota at aistudio.google.com/rate-limit and adjust if it differs.
+GEMINI_RPM_LIMIT = 8
+GEMINI_RPD_LIMIT = 200
 
 # Fail loudly right away instead of a confusing crash later when the bot tries to log in.
 if not DISCORD_TOKEN:
