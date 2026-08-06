@@ -17,7 +17,7 @@ tracking makes a big move. Everything here also lives on a companion website at
 | `/news <ticker>` | The 5 most recent headlines for a ticker, each with a link |
 | `/watchlist add \| remove \| list` | Your own private watchlist, visible only to you. `add` takes multiple tickers at once, separated by commas or spaces |
 | `/track add \| remove \| list` | The server's shared tracked list, this is what the automatic updates below actually scan. `add` takes multiple tickers at once too |
-| `/portfolio buy \| sell \| remove \| view` | Track shares you actually own, with a live profit/loss view (average cost basis, blended across buys) |
+| `/portfolio buy \| sell \| edit \| remove \| view` | Track shares you actually own, with a live profit/loss view (average cost basis, blended across buys). `edit` corrects the share count or average cost directly, without blending, for fixing a typo'd entry |
 | `/alert set \| list \| remove` | DMs you the moment a ticker crosses a price you choose |
 | `/notify` | Toggles the Stock Alerts role, so you get pinged whenever the automatic updates post something |
 | `/digest [content]` | Toggles a personal DM every morning summarizing your watchlist, portfolio, or both. A dropdown right on the DM lets you switch what it shows afterward too |

@@ -376,6 +376,27 @@ async def remove_position(guild_id: int, user_id: int, ticker: str) -> bool:
         return _affected(status) > 0
 
 
+async def edit_position(
+    guild_id: int, user_id: int, ticker: str, shares: float | None, cost_basis: float | None
+) -> bool:
+    # Overwrites directly instead of blending like buy_position, this is for fixing a typo'd entry.
+    async with _pool.acquire() as conn:
+        existing = await conn.fetchrow(
+            "SELECT shares, cost_basis FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
+            guild_id, user_id, ticker,
+        )
+        if not existing:
+            return False
+
+        new_shares = shares if shares is not None else existing["shares"]
+        new_cost_basis = cost_basis if cost_basis is not None else existing["cost_basis"]
+        await conn.execute(
+            "UPDATE portfolio SET shares = $1, cost_basis = $2 WHERE guild_id = $3 AND user_id = $4 AND ticker = $5",
+            new_shares, new_cost_basis, guild_id, user_id, ticker,
+        )
+        return True
+
+
 # Dedup for the breaking-move scan, one row per ticker (not per server), since it checks a fixed global list.
 async def get_breaking_alert_date(ticker: str) -> str | None:
     async with _pool.acquire() as conn:

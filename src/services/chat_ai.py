@@ -6,7 +6,7 @@ from google import genai
 from google.genai import types
 
 from config import CHAT_MODEL, GEMINI_API_KEY
-from services import market_data
+from services import gemini_limiter, market_data
 
 log = logging.getLogger("investo.chat_ai")
 
@@ -106,6 +106,8 @@ def _generate_sync(prompt: str) -> str | None:
 
 async def generate_chat_reply(question: str, prior_reply: str | None = None) -> str | None:
     if not _client:
+        return None
+    if not await gemini_limiter.try_acquire():
         return None
 
     # Scanning the prior message too is what makes a bare "why" work replying to a big-move alert, whose title has the ticker.
