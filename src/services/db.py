@@ -71,6 +71,12 @@ CREATE TABLE IF NOT EXISTS server_digest (
     period TEXT NOT NULL DEFAULT 'day',
     include_movers BOOLEAN NOT NULL DEFAULT TRUE
 );
+
+CREATE TABLE IF NOT EXISTS bot_guilds (
+    guild_id BIGINT PRIMARY KEY,
+    name TEXT NOT NULL,
+    icon_hash TEXT
+);
 """
 
 
@@ -435,3 +441,32 @@ async def all_server_digests() -> list[dict]:
     async with _pool.acquire() as conn:
         rows = await conn.fetch("SELECT guild_id, channel_id, period, include_movers FROM server_digest")
         return [dict(r) for r in rows]
+
+
+# Lets the website figure out which of a user's own Discord servers actually have the bot installed.
+async def upsert_bot_guild(guild_id: int, name: str, icon_hash: str | None) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO bot_guilds (guild_id, name, icon_hash) VALUES ($1, $2, $3) "
+            "ON CONFLICT (guild_id) DO UPDATE SET name = excluded.name, icon_hash = excluded.icon_hash",
+            guild_id, name, icon_hash,
+        )
+
+
+async def remove_bot_guild(guild_id: int) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute("DELETE FROM bot_guilds WHERE guild_id = $1", guild_id)
+
+
+async def sync_bot_guilds(guilds: list[tuple[int, str, str | None]]) -> None:
+    # Reconciles the full table against bot.guilds on startup, Discord doesn't replay join/leave events missed offline.
+    async with _pool.acquire() as conn:
+        async with conn.transaction():
+            for guild_id, name, icon_hash in guilds:
+                await conn.execute(
+                    "INSERT INTO bot_guilds (guild_id, name, icon_hash) VALUES ($1, $2, $3) "
+                    "ON CONFLICT (guild_id) DO UPDATE SET name = excluded.name, icon_hash = excluded.icon_hash",
+                    guild_id, name, icon_hash,
+                )
+            current_ids = [g[0] for g in guilds]
+            await conn.execute("DELETE FROM bot_guilds WHERE guild_id <> ALL($1::bigint[])", current_ids)
