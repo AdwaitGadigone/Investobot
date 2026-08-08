@@ -69,6 +69,12 @@ CHAT_MODEL = "gemini-flash-latest"
 GEMINI_RPM_LIMIT = 8
 GEMINI_RPD_LIMIT = 200
 
+# Per-user slash command cooldowns, seconds between uses of the same command. Light is for simple DB reads/writes.
+LIGHT_COOLDOWN_SECONDS = 3
+
+# Heavy is for commands hitting external APIs (Yahoo Finance, Finnhub, Alpha Vantage), those have their own strict limits.
+HEAVY_COOLDOWN_SECONDS = 6
+
 # Fail loudly right away instead of a confusing crash later when the bot tries to log in.
 if not DISCORD_TOKEN:
     raise RuntimeError("DISCORD_TOKEN is not set. Copy .env.example to .env and fill it in.")

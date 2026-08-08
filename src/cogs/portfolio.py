@@ -4,6 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import HEAVY_COOLDOWN_SECONDS, LIGHT_COOLDOWN_SECONDS
 from services import db, market_data
 
 
@@ -31,6 +32,7 @@ class Portfolio(commands.Cog):
     portfolio_group = app_commands.Group(name="portfolio", description="Track shares you actually own")
 
     @portfolio_group.command(name="buy", description="Log a buy, adds to your position if you already own some")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     @app_commands.describe(
         ticker="Stock ticker symbol, e.g. AAPL",
         shares="Number of shares bought",
@@ -55,6 +57,7 @@ class Portfolio(commands.Cog):
         )
 
     @portfolio_group.command(name="sell", description="Log a sell, reduces or closes your position")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     @app_commands.describe(ticker="Stock ticker symbol", shares="Number of shares sold")
     async def portfolio_sell(self, interaction: discord.Interaction, ticker: str, shares: float):
         ticker = ticker.upper().strip()
@@ -71,6 +74,7 @@ class Portfolio(commands.Cog):
             await interaction.response.send_message(f"Logged selling **{shares:g}** shares of **{ticker}**.")
 
     @portfolio_group.command(name="edit", description="Correct a position's shares or average cost, no blending")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     @app_commands.describe(
         ticker="Stock ticker symbol",
         shares="Correct total share count, leave blank to only change the average cost",
@@ -100,6 +104,7 @@ class Portfolio(commands.Cog):
         await interaction.response.send_message(f"Updated **{ticker}**: set " + " and ".join(parts) + ".")
 
     @portfolio_group.command(name="remove", description="Fully remove a position, regardless of share count")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     async def portfolio_remove(self, interaction: discord.Interaction, ticker: str):
         ticker = ticker.upper().strip()
         removed = await db.remove_position(interaction.guild_id, interaction.user.id, ticker)
@@ -107,6 +112,7 @@ class Portfolio(commands.Cog):
         await interaction.response.send_message(msg)
 
     @portfolio_group.command(name="view", description="See your holdings and profit/loss")
+    @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
     async def portfolio_view(self, interaction: discord.Interaction):
         # Fetching a live price per position takes longer than Discord's 3 second window.
         await interaction.response.defer()

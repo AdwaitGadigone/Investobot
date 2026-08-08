@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import LIGHT_COOLDOWN_SECONDS
 from services import db, market_data
 
 
@@ -15,6 +16,7 @@ class Alerts(commands.Cog):
     alert_group = app_commands.Group(name="alert", description="Manage your personal price alerts")
 
     @alert_group.command(name="set", description="Get DM'd when a ticker goes above/below a price")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     @app_commands.describe(
         ticker="Stock ticker symbol, e.g. AAPL",
         direction="Alert when price goes above or below the target",
@@ -48,6 +50,7 @@ class Alerts(commands.Cog):
         )
 
     @alert_group.command(name="list", description="Show your active price alerts")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     async def alert_list(self, interaction: discord.Interaction):
         rows = await db.get_user_alerts(interaction.guild_id, interaction.user.id)
         if not rows:
@@ -58,6 +61,7 @@ class Alerts(commands.Cog):
         await interaction.response.send_message("\n".join(lines))
 
     @alert_group.command(name="remove", description="Cancel one of your price alerts")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     @app_commands.describe(alert_id="The alert number shown in /alert list")
     async def alert_remove(self, interaction: discord.Interaction, alert_id: int):
         removed = await db.remove_alert(alert_id, interaction.user.id)

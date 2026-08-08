@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import LIGHT_COOLDOWN_SECONDS
 from services import db
 
 ROLE_NAME = "Stock Alerts"
@@ -14,6 +15,7 @@ class Notify(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="notify", description="Toggle pings for automatic stock move/news updates")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     async def notify(self, interaction: discord.Interaction):
         guild = interaction.guild
 
