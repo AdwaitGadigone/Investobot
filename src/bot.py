@@ -30,6 +30,7 @@ INITIAL_EXTENSIONS = (
     "cogs.chat",
     "cogs.owner",
     "cogs.guild_sync",
+    "cogs.feedback",
 )
 
 
