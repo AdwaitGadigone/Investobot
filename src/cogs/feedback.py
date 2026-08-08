@@ -38,7 +38,9 @@ class Feedback(commands.Cog):
         for owner_id in OWNER_DISCORD_IDS:
             try:
                 owner = await self.bot.fetch_user(owner_id)
-                await owner.send(f"📝 **{label}** from **{interaction.user}** in **{guild_name}**:\n{message}")
+                await owner.send(
+                    f"📝 **{label}** from **{interaction.user}** (`{interaction.user.id}`) in **{guild_name}**:\n{message}"
+                )
             except discord.HTTPException:
                 log.warning("Could not DM feedback to owner %s", owner_id)
 
