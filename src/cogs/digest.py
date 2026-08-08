@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import LIGHT_COOLDOWN_SECONDS
 from services import db
 
 
@@ -12,6 +13,7 @@ class Digest(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="digest", description="Toggle your daily DM, or change what it includes")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     @app_commands.describe(content="What the daily DM should include, leave blank to just toggle on/off")
     @app_commands.choices(
         content=[

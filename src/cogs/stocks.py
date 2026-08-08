@@ -4,6 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import HEAVY_COOLDOWN_SECONDS
 from services import charts, market_data
 
 
@@ -163,6 +164,7 @@ class Stocks(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="stock", description="Get a full quote, chart, and analyst take for a ticker")
+    @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
     @app_commands.describe(
         ticker="Stock ticker symbol, e.g. AAPL",
         range="How far back the chart should go (defaults to 1 month)",

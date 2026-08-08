@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import WEBSITE_URL
+from config import LIGHT_COOLDOWN_SECONDS, WEBSITE_URL
 
 # Each entry becomes one embed field, grouped by feature instead of one field per command, so the whole list fits in a single embed.
 SECTIONS = [
@@ -96,6 +96,7 @@ class Help(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="help", description="Shows everything Investo can do")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     async def help(self, interaction: discord.Interaction):
         await interaction.response.send_message(embed=_build_help_embed())
 

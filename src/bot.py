@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from discord.http import Route
 
@@ -40,6 +41,8 @@ class InvestoBot(commands.Bot):
         # Shows up under the bot's name in every server's member list, points people at the site.
         activity = discord.Activity(type=discord.ActivityType.watching, name=f"stocks on {WEBSITE_URL.removeprefix('https://')}")
         super().__init__(command_prefix="!", intents=intents, activity=activity)
+        # A cooldown trip or any other unhandled error would otherwise look like a dead, unresponsive interaction.
+        self.tree.on_error = self._on_app_command_error
 
     async def setup_hook(self):
         # setup_hook runs once automatically, right after login but before the bot starts handling events.
@@ -68,6 +71,21 @@ class InvestoBot(commands.Bot):
             await self.http.request(Route("PATCH", "/applications/@me"), json={"description": description})
         except discord.HTTPException:
             log.warning("Could not update application description")
+
+    async def _on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.CommandOnCooldown):
+            message = f"Slow down, you can use this again in {error.retry_after:.1f}s."
+        else:
+            log.exception("Unhandled app command error", exc_info=error)
+            message = "Something went wrong running that, try again in a bit."
+
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        except discord.HTTPException:
+            log.warning("Could not send error message for interaction %s", interaction.id)
 
     async def on_ready(self):
         # Fires once the bot has fully connected to Discord's servers.

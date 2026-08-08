@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import HEAVY_COOLDOWN_SECONDS
 from services import market_data
 
 PERIOD_LABELS = {
@@ -120,6 +121,7 @@ class Movers(commands.Cog):
         name="movers",
         description="Today's (or this week's/month's/3 months'/year's/5 years') top gainers, losers, and most active",
     )
+    @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
     async def movers(self, interaction: discord.Interaction):
         # Defer buys 15 minutes since a cold cache means fetching 25 tickers of history.
         await interaction.response.defer()

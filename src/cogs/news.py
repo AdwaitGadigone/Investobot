@@ -4,6 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import HEAVY_COOLDOWN_SECONDS
 from services import market_data
 
 
@@ -14,6 +15,7 @@ class News(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="news", description="Latest headlines for a ticker")
+    @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
     @app_commands.describe(ticker="Stock ticker symbol, e.g. AAPL")
     async def news(self, interaction: discord.Interaction, ticker: str):
         await interaction.response.defer()

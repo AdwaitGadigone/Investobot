@@ -5,6 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import HEAVY_COOLDOWN_SECONDS, LIGHT_COOLDOWN_SECONDS
 from services import db, market_data
 
 
@@ -49,6 +50,7 @@ class Watchlist(commands.Cog):
     )
 
     @watchlist_group.command(name="add", description="Add one or more tickers to your personal watchlist")
+    @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
     @app_commands.describe(tickers="One or more tickers, separated by commas or spaces, e.g. AAPL, MSFT, NVDA")
     async def watchlist_add(self, interaction: discord.Interaction, tickers: str):
         await interaction.response.defer()
@@ -77,6 +79,7 @@ class Watchlist(commands.Cog):
         await interaction.followup.send("\n".join(lines))
 
     @watchlist_group.command(name="remove", description="Remove a ticker from your personal watchlist")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     async def watchlist_remove(self, interaction: discord.Interaction, ticker: str):
         ticker = ticker.upper().strip()
         removed = await db.remove_from_watchlist(interaction.guild_id, interaction.user.id, ticker)
@@ -84,6 +87,7 @@ class Watchlist(commands.Cog):
         await interaction.response.send_message(msg)
 
     @watchlist_group.command(name="list", description="Show your personal watchlist")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     async def watchlist_list(self, interaction: discord.Interaction):
         tickers = await db.get_watchlist(interaction.guild_id, interaction.user.id)
         if not tickers:
@@ -92,6 +96,7 @@ class Watchlist(commands.Cog):
         await interaction.response.send_message(f"**Your watchlist:** {', '.join(tickers)}")
 
     @track_group.command(name="add", description="Add one or more tickers to the server's shared tracked list")
+    @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
     @app_commands.describe(tickers="One or more tickers, separated by commas or spaces, e.g. AAPL, MSFT, NVDA")
     async def track_add(self, interaction: discord.Interaction, tickers: str):
         await interaction.response.defer()
@@ -120,6 +125,7 @@ class Watchlist(commands.Cog):
         await interaction.followup.send("\n".join(lines))
 
     @track_group.command(name="remove", description="Remove a ticker from the server's shared tracked list")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     async def track_remove(self, interaction: discord.Interaction, ticker: str):
         ticker = ticker.upper().strip()
         removed = await db.remove_tracked(interaction.guild_id, ticker)
@@ -127,6 +133,7 @@ class Watchlist(commands.Cog):
         await interaction.response.send_message(msg)
 
     @track_group.command(name="list", description="Show the server's shared tracked list")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     async def track_list(self, interaction: discord.Interaction):
         tickers = await db.get_tracked(interaction.guild_id)
         if not tickers:

@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import LIGHT_COOLDOWN_SECONDS
 from services import db
 
 
@@ -28,6 +29,7 @@ class ServerDigest(commands.Cog):
     )
 
     @group.command(name="set", description="Turn on (or reconfigure) the server's daily digest")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     @app_commands.describe(
         channel="Where the daily digest gets posted",
         period="Time window it opens showing, viewers can still switch it on the message itself",
@@ -54,6 +56,7 @@ class ServerDigest(commands.Cog):
         )
 
     @group.command(name="off", description="Turn off the server's daily digest")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     async def off(self, interaction: discord.Interaction):
         if not interaction.user.guild_permissions.manage_guild:
             await interaction.response.send_message("You need the Manage Server permission to do this.", ephemeral=True)
