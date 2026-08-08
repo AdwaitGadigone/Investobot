@@ -77,6 +77,15 @@ CREATE TABLE IF NOT EXISTS bot_guilds (
     name TEXT NOT NULL,
     icon_hash TEXT
 );
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id SERIAL PRIMARY KEY,
+    guild_id BIGINT,
+    user_id BIGINT NOT NULL,
+    category TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 
@@ -470,3 +479,12 @@ async def sync_bot_guilds(guilds: list[tuple[int, str, str | None]]) -> None:
                 )
             current_ids = [g[0] for g in guilds]
             await conn.execute("DELETE FROM bot_guilds WHERE guild_id <> ALL($1::bigint[])", current_ids)
+
+
+# Kept durably, not just DMed to owners, so nothing gets lost if nobody's watching DMs when it comes in.
+async def add_feedback(guild_id: int | None, user_id: int, category: str, message: str) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO feedback (guild_id, user_id, category, message) VALUES ($1, $2, $3, $4)",
+            guild_id, user_id, category, message,
+        )
