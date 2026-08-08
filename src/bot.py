@@ -6,7 +6,7 @@ from discord.ext import commands
 from discord.http import Route
 
 from config import DEV_GUILD_ID, DISCORD_TOKEN, WEBSITE_URL
-from services.db import init_db
+from services.db import init_db, sync_bot_guilds
 
 # Sets up basic console logging so we can see what the bot is doing while it runs.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -28,6 +28,7 @@ INITIAL_EXTENSIONS = (
     "cogs.help",
     "cogs.chat",
     "cogs.owner",
+    "cogs.guild_sync",
 )
 
 
@@ -71,6 +72,11 @@ class InvestoBot(commands.Bot):
     async def on_ready(self):
         # Fires once the bot has fully connected to Discord's servers.
         log.info("Logged in as %s (id: %s)", self.user, self.user.id)
+
+        # self.guilds isn't reliably populated yet in setup_hook, on_ready is the first point it's guaranteed complete.
+        guilds = [(g.id, g.name, g.icon.key if g.icon else None) for g in self.guilds]
+        await sync_bot_guilds(guilds)
+        log.info("Synced %d guilds to bot_guilds", len(guilds))
 
 
 async def main():
