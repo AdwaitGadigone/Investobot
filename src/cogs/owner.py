@@ -35,6 +35,45 @@ class Owner(commands.Cog):
             log.warning("Owner !tell failed to DM user %s", user_id)
             await ctx.author.send(f"Couldn't DM user `{user_id}`, they may have DMs closed or the ID is wrong.")
 
+    @commands.command(name="delmsg", hidden=True)
+    async def delmsg(self, ctx: commands.Context, message_id: int, channel_id: int = None):
+        if ctx.author.id not in OWNER_DISCORD_IDS:
+            return
+
+        # Defaults to wherever the command was run, e.g. the same DM the message you're pointing at is sitting in.
+        channel = ctx.channel
+        if channel_id is not None:
+            channel = self.bot.get_channel(channel_id)
+            if channel is None:
+                try:
+                    channel = await self.bot.fetch_channel(channel_id)
+                except discord.HTTPException:
+                    await ctx.author.send(f"Couldn't find a channel with ID `{channel_id}`.")
+                    return
+
+        try:
+            target = await channel.fetch_message(message_id)
+        except discord.HTTPException:
+            await ctx.author.send(f"Couldn't find message `{message_id}` in that channel.")
+            return
+
+        if target.author.id != self.bot.user.id:
+            # A blanket delete-any-message tool would be a real moderation footgun, this only ever touches its own.
+            await ctx.author.send("That message wasn't sent by me, won't delete it.")
+            return
+
+        try:
+            await target.delete()
+            await ctx.author.send(f"Deleted message `{message_id}`.")
+        except discord.HTTPException:
+            await ctx.author.send(f"Couldn't delete message `{message_id}`, might already be gone.")
+
+        if ctx.guild is not None:
+            try:
+                await ctx.message.delete()
+            except discord.HTTPException:
+                pass
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         # Relays any DM from someone who isn't an owner straight to every owner, so a !tell reply is actually seen.
