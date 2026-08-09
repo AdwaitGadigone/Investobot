@@ -43,6 +43,9 @@ class Alerts(commands.Cog):
         except market_data.TickerNotFoundError:
             await interaction.response.send_message(f"`{ticker}` doesn't look like a valid ticker.")
             return
+        except market_data.MarketDataTimeoutError:
+            await interaction.response.send_message("Yahoo Finance is being slow right now, try again in a bit.")
+            return
 
         alert_id = await db.add_alert(interaction.guild_id, interaction.user.id, ticker, direction.value, price)
         await interaction.response.send_message(

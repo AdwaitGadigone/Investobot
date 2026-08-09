@@ -136,7 +136,7 @@ class RangeSelect(discord.ui.Select):
 
         try:
             embed, chart_file = await _build_stock_response(self.ticker, range_key)
-        except market_data.TickerNotFoundError:
+        except (market_data.TickerNotFoundError, market_data.MarketDataTimeoutError):
             return
 
         await interaction.edit_original_response(embed=embed, attachments=[chart_file], view=self.view)
@@ -193,6 +193,9 @@ class Stocks(commands.Cog):
             await interaction.followup.send(
                 f"Couldn't find a ticker called `{ticker}`. Double-check the symbol."
             )
+            return
+        except market_data.MarketDataTimeoutError:
+            await interaction.followup.send("Yahoo Finance is being slow right now, try again in a bit.")
             return
 
         view = StockView(ticker, range_key)

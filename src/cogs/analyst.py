@@ -35,6 +35,9 @@ class Analyst(commands.Cog):
         except market_data.TickerNotFoundError:
             await interaction.followup.send(f"`{ticker}` doesn't look like a valid ticker.")
             return
+        except market_data.MarketDataTimeoutError:
+            await interaction.followup.send("Yahoo Finance is being slow right now, try again in a bit.")
+            return
 
         if not trends and not target:
             await interaction.followup.send(

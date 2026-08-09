@@ -18,6 +18,15 @@ class TickerNotFoundError(Exception):
     pass
 
 
+class MarketDataTimeoutError(Exception):
+    # Yahoo Finance occasionally hangs for 10-15s+ instead of failing fast, this caps the wait instead of hanging forever.
+    pass
+
+
+# Yahoo Finance has no timeout of its own, some tickers hang 10s+ before failing, this stops the bot waiting on it.
+_QUOTE_TIMEOUT_SECONDS = 8
+
+
 # Company names never change, so this never needs a TTL or eviction like the quote/history caches below.
 _name_cache: dict[str, str] = {}
 
@@ -66,7 +75,10 @@ def _fetch_quote_sync(ticker: str) -> dict:
 
 async def get_quote(ticker: str) -> dict:
     # yfinance blocks while it waits on the network, running it on a thread keeps the bot responsive.
-    return await asyncio.to_thread(_fetch_quote_sync, ticker)
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_fetch_quote_sync, ticker), timeout=_QUOTE_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        raise MarketDataTimeoutError(ticker) from None
 
 
 def _fetch_price_history_sync(ticker: str, period: str, interval: str):
@@ -78,7 +90,12 @@ def _fetch_price_history_sync(ticker: str, period: str, interval: str):
 
 
 async def get_price_history(ticker: str, period: str, interval: str):
-    return await asyncio.to_thread(_fetch_price_history_sync, ticker, period, interval)
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_fetch_price_history_sync, ticker, period, interval), timeout=_QUOTE_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        raise MarketDataTimeoutError(ticker) from None
 
 
 def _fetch_recommendation_trends_sync(ticker: str) -> dict | None:
