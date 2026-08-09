@@ -50,8 +50,8 @@ whatever the model remembers from training.
 
 | Source | Used for |
 |---|---|
-| **Yahoo Finance** (via `yfinance`) | Prices, fundamentals, and the charts |
-| **Finnhub** | Analyst ratings and company news |
+| **Yahoo Finance** (via `yfinance`) | Fundamentals, charts, and price/change for anything Finnhub doesn't cover (CDRs, crypto, non-US tickers). Free tier runs 15-20 minutes delayed |
+| **Finnhub** | Analyst ratings, company news, and real-time price/change for US-listed stocks, no delay, this is what makes quotes actually live instead of 15-20 minutes stale |
 | **Alpha Vantage** | Backup analyst price target, since Finnhub only gives that out on a paid plan |
 | **Google Gemini** (free tier) | Writes the "Analyst Take" summary in `/rating` and powers @ mention replies |
 
