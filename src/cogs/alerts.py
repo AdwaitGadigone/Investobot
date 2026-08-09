@@ -47,9 +47,11 @@ class Alerts(commands.Cog):
             await interaction.response.send_message("Yahoo Finance is being slow right now, try again in a bit.")
             return
 
-        alert_id = await db.add_alert(interaction.guild_id, interaction.user.id, ticker, direction.value, price)
+        await db.add_alert(interaction.guild_id, interaction.user.id, ticker, direction.value, price)
+        # alerts.id is a global sequence shared by everyone, showing it would make a first-ever alert read as "#4".
+        position = len(await db.get_user_alerts(interaction.guild_id, interaction.user.id))
         await interaction.response.send_message(
-            f"Alert #{alert_id} set. I'll DM you when **{ticker}** goes {direction.value} **${price:,.2f}**."
+            f"Alert #{position} set. I'll DM you when **{ticker}** goes {direction.value} **${price:,.2f}**."
         )
 
     @alert_group.command(name="list", description="Show your active price alerts")
@@ -60,15 +62,25 @@ class Alerts(commands.Cog):
             await interaction.response.send_message("You have no active alerts.")
             return
 
-        lines = [f"#{aid} - **{ticker}** {direction} ${price:,.2f}" for aid, ticker, direction, price in rows]
+        lines = [
+            f"#{i} - **{ticker}** {direction} ${price:,.2f}"
+            for i, (_, ticker, direction, price) in enumerate(rows, start=1)
+        ]
         await interaction.response.send_message("\n".join(lines))
 
     @alert_group.command(name="remove", description="Cancel one of your price alerts")
     @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     @app_commands.describe(alert_id="The alert number shown in /alert list")
     async def alert_remove(self, interaction: discord.Interaction, alert_id: int):
-        removed = await db.remove_alert(alert_id, interaction.user.id)
-        msg = f"Removed alert #{alert_id}." if removed else "Couldn't find that alert (check the ID with /alert list)."
+        # alert_id here is the position shown in /alert list, not the raw database ID, resolve it to the real one first.
+        rows = await db.get_user_alerts(interaction.guild_id, interaction.user.id)
+        if alert_id < 1 or alert_id > len(rows):
+            await interaction.response.send_message("Couldn't find that alert (check the number with /alert list).")
+            return
+
+        real_id = rows[alert_id - 1]["id"]
+        removed = await db.remove_alert(real_id, interaction.user.id)
+        msg = f"Removed alert #{alert_id}." if removed else "Couldn't find that alert (check the number with /alert list)."
         await interaction.response.send_message(msg)
 
 
