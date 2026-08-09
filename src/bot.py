@@ -32,6 +32,7 @@ INITIAL_EXTENSIONS = (
     "cogs.guild_sync",
     "cogs.feedback",
     "cogs.status",
+    "cogs.welcome",
 )
 
 

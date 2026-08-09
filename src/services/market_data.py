@@ -73,12 +73,49 @@ def _fetch_quote_sync(ticker: str) -> dict:
     }
 
 
-async def get_quote(ticker: str) -> dict:
-    # yfinance blocks while it waits on the network, running it on a thread keeps the bot responsive.
+def _fetch_finnhub_quote_sync(ticker: str) -> dict | None:
+    if not _finnhub_client:
+        return None
     try:
-        return await asyncio.wait_for(asyncio.to_thread(_fetch_quote_sync, ticker), timeout=_QUOTE_TIMEOUT_SECONDS)
+        quote = _finnhub_client.quote(ticker.upper())
+    except Exception:
+        return None
+    # Finnhub returns all-zero fields instead of an error for tickers it doesn't cover, like CDRs or crypto.
+    if not quote or not quote.get("c"):
+        return None
+    return quote
+
+
+async def get_quote(ticker: str) -> dict:
+    # Runs concurrently, Yahoo still supplies name/market cap/range but Finnhub's real-time US price wins when it covers the ticker.
+    try:
+        yahoo_quote, finnhub_quote = await asyncio.wait_for(
+            asyncio.gather(
+                asyncio.to_thread(_fetch_quote_sync, ticker),
+                asyncio.to_thread(_fetch_finnhub_quote_sync, ticker),
+            ),
+            timeout=_QUOTE_TIMEOUT_SECONDS,
+        )
     except asyncio.TimeoutError:
         raise MarketDataTimeoutError(ticker) from None
+
+    if finnhub_quote:
+        price = finnhub_quote["c"]
+        prev_close = finnhub_quote.get("pc") or yahoo_quote["prev_close"]
+        change = finnhub_quote.get("d")
+        change_pct = finnhub_quote.get("dp")
+        yahoo_quote.update(
+            {
+                "price": price,
+                "prev_close": prev_close,
+                "change": change if change is not None else price - prev_close,
+                "change_pct": change_pct if change_pct is not None else ((price - prev_close) / prev_close * 100 if prev_close else 0.0),
+                "day_high": finnhub_quote.get("h") or yahoo_quote["day_high"],
+                "day_low": finnhub_quote.get("l") or yahoo_quote["day_low"],
+            }
+        )
+
+    return yahoo_quote
 
 
 def _fetch_price_history_sync(ticker: str, period: str, interval: str):
