@@ -15,6 +15,9 @@ tracking makes a big move. Everything here also lives on a companion website at
 | `/movers` | Top gainers, losers, and most active stocks, with buttons to switch category and a dropdown for the time span (today through 5 years) |
 | `/rating <ticker>` | The full analyst buy/hold/sell breakdown, the average price target, and an AI-written "Analyst Take" explaining *why* the rating looks the way it does |
 | `/news <ticker>` | The 5 most recent headlines for a ticker, each with a link |
+| `/sentiment <ticker>` | An AI read on current news sentiment, bullish/bearish/mixed, grounded in real recent headlines |
+| `/company_overview <ticker>` | Business description, sector/industry, and valuation metrics (P/E, P/B, dividend yield, beta) |
+| `/fgi` | The crypto market's Fear & Greed Index right now |
 | `/watchlist add \| remove \| list` | Your own private watchlist, visible only to you. `add` takes multiple tickers at once, separated by commas or spaces |
 | `/track add \| remove \| list` | The server's shared tracked list, this is what the automatic updates below actually scan. `add` takes multiple tickers at once too |
 | `/portfolio buy \| sell \| edit \| remove \| view` | Track shares you actually own, with a live profit/loss view (average cost basis, blended across buys). `edit` corrects the share count or average cost directly, without blending, for fixing a typo'd entry |
@@ -53,7 +56,8 @@ whatever the model remembers from training.
 | **Yahoo Finance** (via `yfinance`) | Fundamentals, charts, and price/change for anything Finnhub doesn't cover (CDRs, crypto, non-US tickers). Free tier runs 15-20 minutes delayed |
 | **Finnhub** | Analyst ratings, company news, and real-time price/change for US-listed stocks, no delay, this is what makes quotes actually live instead of 15-20 minutes stale |
 | **Alpha Vantage** | Backup analyst price target, since Finnhub only gives that out on a paid plan |
-| **Google Gemini** (free tier) | Writes the "Analyst Take" summary in `/rating` and powers @ mention replies |
+| **Google Gemini** (free tier) | Writes the "Analyst Take" in `/rating`, the sentiment read in `/sentiment`, and powers @ mention replies |
+| **alternative.me** | Free, no key needed, the crypto Fear & Greed Index behind `/fgi` |
 
 TipRanks was the original plan for the analyst side of things, but they don't offer a
 public API individual developers can sign up for, so this combination of free sources
