@@ -31,6 +31,7 @@ INITIAL_EXTENSIONS = (
     "cogs.owner",
     "cogs.guild_sync",
     "cogs.feedback",
+    "cogs.status",
 )
 
 

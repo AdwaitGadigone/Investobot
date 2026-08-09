@@ -237,14 +237,16 @@ class Scheduler(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Starts both loops as soon as this cog is loaded, defined below with @tasks.loop decorators.
+        # Starts every loop as soon as this cog is loaded, defined below with @tasks.loop decorators.
         self.check_loop.start()
         self.digest_loop.start()
+        self.heartbeat_loop.start()
 
     def cog_unload(self):
-        # Stops both loops cleanly so a hot-reload during development doesn't leave duplicates running.
+        # Stops every loop cleanly so a hot-reload during development doesn't leave duplicates running.
         self.check_loop.cancel()
         self.digest_loop.cancel()
+        self.heartbeat_loop.cancel()
 
     # tasks.loop turns this into a function that automatically repeats itself every CHECK_INTERVAL_MINUTES.
     @tasks.loop(minutes=CHECK_INTERVAL_MINUTES)
@@ -267,6 +269,15 @@ class Scheduler(commands.Cog):
 
     @digest_loop.before_loop
     async def before_digest_loop(self):
+        await self.bot.wait_until_ready()
+
+    # Short interval on purpose, this is what the website's status page uses to tell if the bot is actually alive.
+    @tasks.loop(minutes=2)
+    async def heartbeat_loop(self):
+        await db.update_heartbeat()
+
+    @heartbeat_loop.before_loop
+    async def before_heartbeat_loop(self):
         await self.bot.wait_until_ready()
 
     async def _updates_channel(self):
