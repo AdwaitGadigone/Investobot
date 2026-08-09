@@ -221,10 +221,11 @@ async def remove_alert(alert_id: int, user_id: int) -> bool:
 
 
 async def get_user_alerts(guild_id: int, user_id: int) -> list[tuple]:
+    # Ordered so the display numbering in cogs/alerts.py is stable, alerts.id is a global sequence, not per-user.
     async with _pool.acquire() as conn:
         return await conn.fetch(
             "SELECT id, ticker, direction, target_price FROM alerts "
-            "WHERE guild_id = $1 AND user_id = $2 AND active = 1",
+            "WHERE guild_id = $1 AND user_id = $2 AND active = 1 ORDER BY id ASC",
             guild_id, user_id,
         )
 
