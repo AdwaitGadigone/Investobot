@@ -32,3 +32,14 @@ async def try_acquire() -> bool:
         _minute_window.append(now)
         _day_window.append(now)
         return True
+
+
+async def get_usage() -> tuple[int, int, int, int]:
+    # Read-only, for /status, doesn't consume a slot the way try_acquire does.
+    async with _lock:
+        now = time.time()
+        while _minute_window and now - _minute_window[0] >= 60:
+            _minute_window.popleft()
+        while _day_window and now - _day_window[0] >= 86400:
+            _day_window.popleft()
+        return len(_minute_window), GEMINI_RPM_LIMIT, len(_day_window), GEMINI_RPD_LIMIT

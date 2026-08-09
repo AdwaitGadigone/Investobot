@@ -86,6 +86,11 @@ CREATE TABLE IF NOT EXISTS feedback (
     message TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS bot_status (
+    singleton_id INTEGER PRIMARY KEY DEFAULT 1 CHECK (singleton_id = 1),
+    last_heartbeat TIMESTAMPTZ NOT NULL
+);
 """
 
 
@@ -487,4 +492,18 @@ async def add_feedback(guild_id: int | None, user_id: int, category: str, messag
         await conn.execute(
             "INSERT INTO feedback (guild_id, user_id, category, message) VALUES ($1, $2, $3, $4)",
             guild_id, user_id, category, message,
+        )
+
+
+async def ping() -> None:
+    # Just proves the pool can actually round-trip a query, for /status and the website's status page.
+    async with _pool.acquire() as conn:
+        await conn.fetchval("SELECT 1")
+
+
+async def update_heartbeat() -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO bot_status (singleton_id, last_heartbeat) VALUES (1, now()) "
+            "ON CONFLICT (singleton_id) DO UPDATE SET last_heartbeat = excluded.last_heartbeat"
         )
