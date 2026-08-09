@@ -296,8 +296,7 @@ class Scheduler(commands.Cog):
         return channel
 
     async def _check_movers(self):
-        # Only posts price moves here, not individual news articles, since a heavily-covered ticker
-        # can have 50+ headlines a day and posting each one is the flood this used to cause.
+        # Only price moves here, not individual news articles, a heavily-covered ticker can have 50+ headlines a day.
         channel = await self._updates_channel()
         if channel is None:
             return
