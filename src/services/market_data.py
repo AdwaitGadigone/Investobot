@@ -420,3 +420,57 @@ def summarize_recommendation(trends: dict | None) -> tuple[str, str] | None:
     if score >= -1.2:
         return "🔴", "Sell"
     return "🔴", "Strong Sell"
+
+
+def _fetch_company_overview_sync(ticker: str) -> dict:
+    t = yf.Ticker(ticker)
+    try:
+        info = t.info
+    except Exception:
+        raise TickerNotFoundError(ticker)
+
+    if not info or not info.get("longName"):
+        raise TickerNotFoundError(ticker)
+
+    price = info.get("currentPrice") or info.get("regularMarketPrice")
+    dividend_rate = info.get("dividendRate")
+    # Computed from raw dollar figures instead of trusting info["dividendYield"], whose scale has changed across yfinance versions.
+    dividend_yield_pct = (dividend_rate / price * 100) if dividend_rate and price else None
+
+    return {
+        "name": info.get("longName") or ticker.upper(),
+        "summary": info.get("longBusinessSummary"),
+        "sector": info.get("sector"),
+        "industry": info.get("industry"),
+        "employees": info.get("fullTimeEmployees"),
+        "dividend_yield_pct": dividend_yield_pct,
+        "pe_ratio": info.get("trailingPE"),
+        "forward_pe": info.get("forwardPE"),
+        "price_to_book": info.get("priceToBook"),
+        "beta": info.get("beta"),
+        "website": info.get("website"),
+    }
+
+
+async def get_company_overview(ticker: str) -> dict:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_fetch_company_overview_sync, ticker), timeout=_QUOTE_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        raise MarketDataTimeoutError(ticker) from None
+
+
+def _fetch_fear_greed_sync() -> dict | None:
+    try:
+        resp = requests.get("https://api.alternative.me/fng/?limit=1", timeout=8)
+        resp.raise_for_status()
+        data = resp.json()["data"][0]
+        return {"value": int(data["value"]), "classification": data["value_classification"]}
+    except Exception:
+        return None
+
+
+async def get_crypto_fear_greed() -> dict | None:
+    # A free, no-key index (alternative.me), crypto only, there's no equivalent free source for stocks.
+    return await asyncio.to_thread(_fetch_fear_greed_sync)

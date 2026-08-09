@@ -33,6 +33,7 @@ INITIAL_EXTENSIONS = (
     "cogs.feedback",
     "cogs.status",
     "cogs.welcome",
+    "cogs.insights",
 )
 
 
