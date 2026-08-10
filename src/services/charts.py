@@ -34,25 +34,27 @@ def build_price_chart(ticker: str, history, range_key: str) -> io.BytesIO:
     line_color = COLOR_GOOD if is_up else COLOR_CRITICAL
 
     # Built directly instead of pyplot, whose shared "current figure" breaks under concurrent requests.
-    fig = Figure(figsize=(7.5, 4), dpi=160)
+    # Discord scales embed images down to roughly 400-450px wide regardless of source resolution, so a high
+    # dpi with small point sizes (the old 160dpi/8pt combo) shrinks to illegibly tiny text on screen.
+    fig = Figure(figsize=(7.5, 4.3), dpi=120)
 
     # Transparent so the PNG blends into Discord's embed background instead of showing a white box.
     fig.patch.set_alpha(0.0)
 
-    gs = fig.add_gridspec(nrows=2, ncols=1, height_ratios=[3, 1], hspace=0.06)
+    gs = fig.add_gridspec(nrows=2, ncols=1, height_ratios=[3, 1], hspace=0.1)
     ax_price = fig.add_subplot(gs[0])
     ax_vol = fig.add_subplot(gs[1], sharex=ax_price)
 
     x = history.index
 
-    ax_price.plot(x, closes, color=line_color, linewidth=2, solid_capstyle="round")
+    ax_price.plot(x, closes, color=line_color, linewidth=2.2, solid_capstyle="round")
 
     # Soft area fill under the line, like most stock apps use.
     ax_price.fill_between(x, closes, closes.min(), color=line_color, alpha=0.12)
 
     ax_price.set_facecolor("none")
     ax_price.set_ylabel("")
-    ax_price.tick_params(axis="y", colors=COLOR_TEXT, labelsize=8)
+    ax_price.tick_params(axis="y", colors=COLOR_TEXT, labelsize=12)
     ax_price.tick_params(axis="x", labelbottom=False, bottom=False)
     ax_price.yaxis.set_major_locator(MaxNLocator(nbins=5))
     ax_price.yaxis.set_major_formatter(lambda val, pos: f"${val:,.0f}")
@@ -74,8 +76,8 @@ def build_price_chart(ticker: str, history, range_key: str) -> io.BytesIO:
         ax_vol.bar(x, volume, color=day_colors, alpha=0.45, width=(x[-1] - x[0]) / max(len(x), 1) * 0.8)
 
     ax_vol.set_facecolor("none")
-    ax_vol.tick_params(axis="y", colors=COLOR_TEXT, labelsize=7)
-    ax_vol.tick_params(axis="x", colors=COLOR_TEXT, labelsize=8)
+    ax_vol.tick_params(axis="y", colors=COLOR_TEXT, labelsize=10)
+    ax_vol.tick_params(axis="x", colors=COLOR_TEXT, labelsize=11)
     ax_vol.yaxis.set_major_locator(MaxNLocator(nbins=3))
     ax_vol.yaxis.set_major_formatter(lambda val, pos: _fmt_volume(val))
 

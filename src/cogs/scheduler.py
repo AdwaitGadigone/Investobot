@@ -105,9 +105,11 @@ async def _build_digest_embed(
                     _portfolio_digest_line(p["ticker"], p["shares"], p["cost_basis"], quote_cache[p["ticker"]])
                     for p in priced
                 ]
+                # The summary's own ANSI codes need to be inside the same ```ansi fence as the lines below it,
+                # a fence opened AFTER it left those escape codes rendering as literal garbled characters.
                 embed.add_field(
                     name="💼 Portfolio",
-                    value=f"{summary}\n```ansi\n" + "\n".join(lines) + "\n```",
+                    value="```ansi\n" + summary + "\n" + "\n".join(lines) + "\n```",
                     inline=False,
                 )
 
@@ -132,10 +134,13 @@ class DigestContentSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         content = self.values[0]
+        # Refetching quotes takes longer than Discord's 3-second interaction window, defer avoids
+        # "the application didn't respond in time" instead of failing the interaction outright.
+        await interaction.response.defer()
         # Persisted, so tomorrow's auto-send opens on whatever the user last picked here too.
         await db.set_digest_content(self.guild_id, self.user_id, content)
         embed = await _build_digest_embed(self.guild_id, self.user_id, content)
-        await interaction.response.edit_message(embed=embed, view=DigestView(self.guild_id, self.user_id, content))
+        await interaction.edit_original_response(embed=embed, view=DigestView(self.guild_id, self.user_id, content))
 
 
 class DigestView(discord.ui.View):
@@ -156,21 +161,30 @@ SERVER_DIGEST_PERIOD_LABELS = {
 
 
 async def _server_digest_rows(tickers: list[str], period: str) -> list[dict]:
-    rows = []
-    for ticker in tickers:
-        try:
-            quote = await market_data.get_quote(ticker)
-        except Exception:
-            log.exception("Failed to fetch quote for server digest ticker %s", ticker)
-            continue
+    # Every ticker fetched concurrently instead of one at a time, a 10-ticker list was taking 10x as long
+    # as a single fetch and regularly blowing past Discord's interaction deadline.
+    quotes = await asyncio.gather(*(market_data.get_quote(t) for t in tickers), return_exceptions=True)
 
+    rows = []
+    day_tickers = []
+    for ticker, quote in zip(tickers, quotes):
+        if isinstance(quote, Exception):
+            log.exception("Failed to fetch quote for server digest ticker %s", ticker, exc_info=quote)
+            continue
         if period == "day":
             rows.append({"ticker": ticker, "price": quote["price"], "change_pct": quote["change_pct"]})
-            continue
+        else:
+            day_tickers.append((ticker, quote))
 
-        change = await market_data.get_period_change(ticker, period)
-        if change:
+    if day_tickers:
+        changes = await asyncio.gather(
+            *(market_data.get_period_change(t, period) for t, _ in day_tickers), return_exceptions=True
+        )
+        for (ticker, quote), change in zip(day_tickers, changes):
+            if isinstance(change, Exception) or not change:
+                continue
             rows.append({"ticker": ticker, "price": quote["price"], "change_pct": change["pct"]})
+
     return rows
 
 
@@ -218,11 +232,14 @@ class ServerDigestPeriodSelect(discord.ui.Select):
         self.big_movers = big_movers
 
     async def callback(self, interaction: discord.Interaction):
+        # Refetching a whole tracked list takes longer than Discord's 3-second interaction window, defer
+        # avoids "the application didn't respond in time" instead of failing the interaction outright.
+        await interaction.response.defer()
         # Deliberately not saved anywhere, this only changes how THIS posted message looks, not tomorrow's default.
         period = self.values[0]
         embed = await _build_server_digest_embed(self.tickers, period, self.include_movers, self.big_movers)
         view = ServerDigestView(self.tickers, period, self.include_movers, self.big_movers)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 class ServerDigestView(discord.ui.View):
