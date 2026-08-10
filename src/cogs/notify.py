@@ -35,7 +35,10 @@ class Notify(commands.Cog):
                 )
                 return
             await db.set_alerts_role_id(guild.id, role.id)
-            # Also locks in this server's alert channel to wherever /notify was first run, every guild needs its own.
+
+        # Checked independently of role creation, a guild whose role already existed before this feature
+        # shipped would otherwise never hit this line and silently never get an alert channel at all.
+        if await db.get_updates_channel_id(guild.id) is None:
             await db.set_updates_channel_id(guild.id, interaction.channel_id)
 
         member = interaction.user
