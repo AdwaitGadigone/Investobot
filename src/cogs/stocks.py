@@ -69,8 +69,15 @@ def build_quote_embed(quote: dict) -> discord.Embed:
         inline=False,
     )
 
-    embed.set_footer(text="Data: Yahoo Finance (delayed)")
+    embed.set_footer(text=_source_footer(quote))
     return embed
+
+
+def _source_footer(quote: dict) -> str:
+    # Finnhub's free tier only covers US-listed stocks, CDRs/crypto/international tickers stay on Yahoo's delayed feed.
+    if quote.get("price_source") == "finnhub":
+        return "Data: real-time price via Finnhub, Yahoo Finance"
+    return "Data: Yahoo Finance (delayed)"
 
 
 async def _build_stock_response(ticker: str, range_key: str) -> tuple[discord.Embed, discord.File]:

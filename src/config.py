@@ -17,9 +17,6 @@ FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY") or None
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or None
 
-# The single channel every server-wide auto update gets posted to.
-UPDATES_CHANNEL_ID = os.getenv("UPDATES_CHANNEL_ID") or None
-
 # Supabase's Postgres connection string (transaction pooler URI), the bot's storage since the old local SQLite file got wiped on every bot-hosting.net redeploy.
 DATABASE_URL = os.getenv("DATABASE_URL")
 

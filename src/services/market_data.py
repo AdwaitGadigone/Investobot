@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 import finnhub
 import requests
 import yfinance as yf
+# yfinance 1.x fetches over curl_cffi, not requests, this is the actual exception a network failure raises.
+from curl_cffi.requests.exceptions import RequestException as CurlRequestException
 
 from config import ALPHA_VANTAGE_API_KEY, FINNHUB_API_KEY
 from services import db
@@ -38,6 +40,9 @@ def _fetch_quote_sync(ticker: str) -> dict:
     try:
         last_price = info.last_price
         prev_close = info.previous_close
+    except CurlRequestException:
+        # A real network failure (timeout, DNS, connection refused), not a bad ticker, let the caller retry.
+        raise
     except Exception:
         # yfinance has no clean "not found" error, it just returns broken data for bad tickers.
         raise TickerNotFoundError(ticker)
@@ -98,6 +103,8 @@ async def get_quote(ticker: str) -> dict:
         )
     except asyncio.TimeoutError:
         raise MarketDataTimeoutError(ticker) from None
+    except CurlRequestException:
+        raise MarketDataTimeoutError(ticker) from None
 
     if finnhub_quote:
         price = finnhub_quote["c"]
@@ -112,8 +119,12 @@ async def get_quote(ticker: str) -> dict:
                 "change_pct": change_pct if change_pct is not None else ((price - prev_close) / prev_close * 100 if prev_close else 0.0),
                 "day_high": finnhub_quote.get("h") or yahoo_quote["day_high"],
                 "day_low": finnhub_quote.get("l") or yahoo_quote["day_low"],
+                "price_source": "finnhub",
             }
         )
+    else:
+        # CDRs, crypto, and non-US tickers fall back to Yahoo's price, which is delayed unlike Finnhub's.
+        yahoo_quote["price_source"] = "yahoo"
 
     return yahoo_quote
 
@@ -132,6 +143,9 @@ async def get_price_history(ticker: str, period: str, interval: str):
             asyncio.to_thread(_fetch_price_history_sync, ticker, period, interval), timeout=_QUOTE_TIMEOUT_SECONDS
         )
     except asyncio.TimeoutError:
+        raise MarketDataTimeoutError(ticker) from None
+    except CurlRequestException:
+        # A real network failure, not an empty/bad ticker, that's the TickerNotFoundError case above.
         raise MarketDataTimeoutError(ticker) from None
 
 
@@ -426,6 +440,9 @@ def _fetch_company_overview_sync(ticker: str) -> dict:
     t = yf.Ticker(ticker)
     try:
         info = t.info
+    except CurlRequestException:
+        # A real network failure, not a bad ticker, let the caller retry instead of saying "invalid ticker".
+        raise
     except Exception:
         raise TickerNotFoundError(ticker)
 
@@ -458,6 +475,8 @@ async def get_company_overview(ticker: str) -> dict:
             asyncio.to_thread(_fetch_company_overview_sync, ticker), timeout=_QUOTE_TIMEOUT_SECONDS
         )
     except asyncio.TimeoutError:
+        raise MarketDataTimeoutError(ticker) from None
+    except CurlRequestException:
         raise MarketDataTimeoutError(ticker) from None
 
 

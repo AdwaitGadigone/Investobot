@@ -11,7 +11,6 @@ from config import (
     BREAKING_WATCH_TICKERS,
     CHECK_INTERVAL_MINUTES,
     DIGEST_TIME_UTC,
-    UPDATES_CHANNEL_ID,
 )
 from cogs.stocks import build_quote_embed
 from services import db, market_data
@@ -280,25 +279,23 @@ class Scheduler(commands.Cog):
     async def before_heartbeat_loop(self):
         await self.bot.wait_until_ready()
 
-    async def _updates_channel(self):
-        if not UPDATES_CHANNEL_ID:
-            return None
-
-        channel = self.bot.get_channel(int(UPDATES_CHANNEL_ID))
+    async def _resolve_channel(self, channel_id: int):
+        channel = self.bot.get_channel(channel_id)
         if channel is None:
             try:
                 # get_channel only checks the bot's local cache, fetch_channel asks Discord directly.
-                channel = await self.bot.fetch_channel(int(UPDATES_CHANNEL_ID))
+                channel = await self.bot.fetch_channel(channel_id)
             except discord.HTTPException:
-                log.warning("Could not resolve UPDATES_CHANNEL_ID=%s", UPDATES_CHANNEL_ID)
+                log.warning("Could not resolve updates channel %s", channel_id)
                 return None
 
         return channel
 
     async def _check_movers(self):
         # Only price moves here, not individual news articles, a heavily-covered ticker can have 50+ headlines a day.
-        channel = await self._updates_channel()
-        if channel is None:
+        # Every guild has its own alert channel (set via /notify), a role from guild B can never ping in guild A's channel.
+        channel_ids = await db.get_all_updates_channel_ids()
+        if not channel_ids:
             return
 
         # Fetches every tracked ticker across every server in one go, grouped by server.
@@ -308,8 +305,15 @@ class Scheduler(commands.Cog):
         quote_cache: dict[str, dict] = {}
 
         for guild_id, tickers in tracked_by_guild.items():
+            channel_id = channel_ids.get(guild_id)
+            if channel_id is None:
+                # Nobody in this server has run /notify yet, so there's nowhere to post its alerts.
+                continue
+            channel = await self._resolve_channel(channel_id)
+            if channel is None:
+                continue
+
             role_id = await db.get_alerts_role_id(guild_id)
-            # Stays None until someone sets up /notify in this server, in which case nothing gets pinged.
             ping = f"<@&{role_id}>" if role_id else None
 
             for ticker in tickers:
@@ -332,34 +336,46 @@ class Scheduler(commands.Cog):
                     await db.set_last_alert_date(guild_id, ticker, today)
 
     async def _check_breaking_moves(self):
-        # Catches a genuinely wild move on a well-known stock even if nobody bothered to /track it.
-        channel = await self._updates_channel()
-        if channel is None:
+        # Catches a genuinely wild move on a well-known stock even if nobody bothered to /track it, for every guild.
+        channel_ids = await db.get_all_updates_channel_ids()
+        if not channel_ids:
             return
 
         tracked_by_guild = await db.all_tracked_by_guild()
-        # Already covered by _check_movers above at a lower threshold, skip to avoid a double alert.
-        already_tracked = {t for tickers in tracked_by_guild.values() for t in tickers}
         today = datetime.now(timezone.utc).date().isoformat()
 
+        quote_cache: dict[str, dict] = {}
         for ticker in BREAKING_WATCH_TICKERS:
-            if ticker in already_tracked:
-                continue
-
             try:
-                quote = await market_data.get_quote(ticker)
+                if ticker not in quote_cache:
+                    quote_cache[ticker] = await market_data.get_quote(ticker)
             except Exception:
                 log.exception("Failed to fetch quote for breaking-move check on %s", ticker)
                 continue
 
+            quote = quote_cache[ticker]
+            if abs(quote["change_pct"]) < BREAKING_MOVE_THRESHOLD_PCT:
+                continue
+
             last_alert = await db.get_breaking_alert_date(ticker)
-            if abs(quote["change_pct"]) >= BREAKING_MOVE_THRESHOLD_PCT and last_alert != today:
-                embed = build_quote_embed(quote)
-                direction = "📈" if quote["change"] >= 0 else "📉"
-                embed.title = f"{direction} Breaking move: {embed.title}"
-                embed.set_footer(text="Data: Yahoo Finance (delayed) • not on anyone's tracked list, just a huge move")
-                await channel.send(embed=embed)
-                await db.set_breaking_alert_date(ticker, today)
+            if last_alert == today:
+                continue
+
+            embed = build_quote_embed(quote)
+            direction = "📈" if quote["change"] >= 0 else "📉"
+            embed.title = f"{direction} Breaking move: {embed.title}"
+            # Appends to the source footer build_quote_embed already set, instead of overwriting it with stale text.
+            embed.set_footer(text=f"{embed.footer.text} • not on anyone's tracked list, just a huge move")
+
+            for guild_id, channel_id in channel_ids.items():
+                # Already covered by _check_movers for this specific guild at a lower threshold, skip to avoid a double alert.
+                if ticker in tracked_by_guild.get(guild_id, []):
+                    continue
+                channel = await self._resolve_channel(channel_id)
+                if channel is not None:
+                    await channel.send(embed=embed)
+
+            await db.set_breaking_alert_date(ticker, today)
 
     async def _check_alerts(self):
         alerts = await db.get_active_alerts()
