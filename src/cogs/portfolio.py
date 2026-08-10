@@ -149,14 +149,27 @@ class Portfolio(commands.Cog):
         total_pl = total_value - total_cost
         total_pl_pct = (total_pl / total_cost * 100) if total_cost else 0.0
 
+        # Embed descriptions cap at 4096 characters, a huge portfolio (70+ positions) could otherwise blow past
+        # that and make Discord reject the whole message instead of just showing fewer lines.
+        shown_lines = lines
+        hidden_count = 0
+        while shown_lines and len("```ansi\n" + "\n".join(shown_lines) + "\n```") > 3900:
+            shown_lines = shown_lines[:-1]
+            hidden_count += 1
+
+        description = "```ansi\n" + "\n".join(shown_lines) + "\n```"
+        if hidden_count:
+            description += f"\n*+{hidden_count} more position{'s' if hidden_count != 1 else ''}, see the full list on the website.*"
+
         embed = discord.Embed(
             title=f"{interaction.user.display_name}'s Portfolio",
-            description="```ansi\n" + "\n".join(lines) + "\n```",
+            description=description,
             color=discord.Color.green() if total_pl >= 0 else discord.Color.red(),
         )
         embed.add_field(name="Total Value", value=f"${total_value:,.2f}", inline=True)
         embed.add_field(name="Total P/L", value=f"{total_pl:+,.2f} ({total_pl_pct:+.1f}%)", inline=True)
-        embed.set_footer(text="Prices delayed, data: Yahoo Finance")
+        # A mixed portfolio can have both real-time (Finnhub-covered) and delayed (Yahoo-only) tickers in one embed.
+        embed.set_footer(text="Data: Yahoo Finance, real-time price via Finnhub where available")
 
         await interaction.followup.send(embed=embed)
 

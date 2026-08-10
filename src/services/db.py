@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS price_target_cache (
 
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id BIGINT PRIMARY KEY,
-    alerts_role_id BIGINT
+    alerts_role_id BIGINT,
+    updates_channel_id BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS digest_optin (
@@ -103,6 +104,7 @@ async def init_db() -> None:
         await conn.execute(_SCHEMA)
         # CREATE TABLE IF NOT EXISTS above only helps fresh databases, existing ones need this to pick up new columns.
         await conn.execute("ALTER TABLE digest_optin ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT 'watchlist'")
+        await conn.execute("ALTER TABLE guild_settings ADD COLUMN IF NOT EXISTS updates_channel_id BIGINT")
 
 
 def _affected(status: str) -> int:
@@ -279,6 +281,31 @@ async def set_alerts_role_id(guild_id: int, role_id: int) -> None:
             "ON CONFLICT (guild_id) DO UPDATE SET alerts_role_id = excluded.alerts_role_id",
             guild_id, role_id,
         )
+
+
+async def get_updates_channel_id(guild_id: int) -> int | None:
+    async with _pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT updates_channel_id FROM guild_settings WHERE guild_id = $1", guild_id
+        )
+
+
+async def set_updates_channel_id(guild_id: int, channel_id: int) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO guild_settings (guild_id, updates_channel_id) VALUES ($1, $2) "
+            "ON CONFLICT (guild_id) DO UPDATE SET updates_channel_id = excluded.updates_channel_id",
+            guild_id, channel_id,
+        )
+
+
+# Every guild that has an updates channel configured, fetched once per scheduler pass instead of once per guild.
+async def get_all_updates_channel_ids() -> dict[int, int]:
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT guild_id, updates_channel_id FROM guild_settings WHERE updates_channel_id IS NOT NULL"
+        )
+    return {r["guild_id"]: r["updates_channel_id"] for r in rows}
 
 
 # Daily digest opt-in, one row per person per server, checked every morning by the scheduler.

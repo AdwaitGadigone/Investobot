@@ -62,7 +62,7 @@ SECTIONS = [
     (
         "🔁 Automatic Updates",
         "Every 15 minutes, Investo checks the server's tracked list for big price moves (5% or more "
-        "since yesterday's close) and posts them to a channel the server owner picked. It also "
+        "since yesterday's close) and posts them to whichever channel `/notify` was first run in. It also "
         "watches a fixed list of well-known, popular tickers for genuinely wild moves (15% or "
         "more), even if nobody's tracking them, so something like a mega-cap suddenly spiking "
         "still gets caught. Use `/news` any time to check headlines yourself.",

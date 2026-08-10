@@ -35,6 +35,8 @@ class Notify(commands.Cog):
                 )
                 return
             await db.set_alerts_role_id(guild.id, role.id)
+            # Also locks in this server's alert channel to wherever /notify was first run, every guild needs its own.
+            await db.set_updates_channel_id(guild.id, interaction.channel_id)
 
         member = interaction.user
         try:
