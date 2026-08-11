@@ -34,6 +34,7 @@ INITIAL_EXTENSIONS = (
     "cogs.status",
     "cogs.welcome",
     "cogs.insights",
+    "cogs.compare",
 )
 
 

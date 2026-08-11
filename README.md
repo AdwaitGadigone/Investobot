@@ -12,6 +12,7 @@ tracking makes a big move. Everything here also lives on a companion website at
 | Command | What it does |
 |---|---|
 | `/stock <ticker> [range]` | Price, day/52wk range, volume, market cap, a price+volume chart, and the analyst consensus, all in one embed. A dropdown under the reply lets you flip between 1D / 1W / 1M / 3M / 6M / YTD / 1Y / 5Y without re-running the command |
+| `/compare <ticker1> <ticker2>` | Price, market cap, and analyst consensus for two tickers side by side |
 | `/movers` | Top gainers, losers, and most active stocks, with buttons to switch category and a dropdown for the time span (today through 5 years) |
 | `/rating <ticker>` | The full analyst buy/hold/sell breakdown, the average price target, and an AI-written "Analyst Take" explaining *why* the rating looks the way it does |
 | `/news <ticker>` | The 5 most recent headlines for a ticker, each with a link |
