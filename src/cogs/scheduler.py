@@ -87,7 +87,11 @@ async def _build_digest_embed(
         tickers = await db.get_watchlist(guild_id, user_id)
         if tickers:
             await ensure_quotes(tickers)
-            lines = [_digest_line(quote_cache[t]) for t in tickers if t in quote_cache]
+            priced_tickers = [t for t in tickers if t in quote_cache]
+            # Biggest gainer first, biggest loser last, so the movers that actually matter aren't buried
+            # alphabetically, plain ticker order told you nothing useful at a glance.
+            priced_tickers.sort(key=lambda t: quote_cache[t]["change_pct"], reverse=True)
+            lines = [_digest_line(quote_cache[t]) for t in priced_tickers]
             if lines:
                 embed.add_field(name="👀 Watchlist", value="```ansi\n" + "\n".join(lines) + "\n```", inline=False)
 
@@ -96,6 +100,8 @@ async def _build_digest_embed(
         if positions:
             await ensure_quotes([p["ticker"] for p in positions])
             priced = [p for p in positions if p["ticker"] in quote_cache]
+            # Same reasoning as the watchlist above, sorted by today's move, not insertion order.
+            priced.sort(key=lambda p: quote_cache[p["ticker"]]["change_pct"], reverse=True)
             if priced:
                 total_value = sum(p["shares"] * quote_cache[p["ticker"]]["price"] for p in priced)
                 total_cost = sum(p["shares"] * p["cost_basis"] for p in priced)
