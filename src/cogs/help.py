@@ -10,20 +10,26 @@ SECTIONS = [
         "📊 Quotes & Charts",
         "`/stock <ticker> [range]` - price, day/52wk range, volume, market cap, a price+volume "
         "chart, and the analyst consensus, all in one embed. `range` picks the chart window: "
-        "1 Day, 1 Week, 1 Month (default), 3 Months, 6 Months, Year to Date, 1 Year, or 5 Years.",
+        "1 Day, 1 Week, 1 Month (default), 3 Months, 6 Months, Year to Date, 1 Year, or 5 Years.\n"
+        "`/compare <ticker1> <ticker2>` - price, market cap, and analyst consensus for two tickers side by side.",
     ),
     (
         "📈 Market Movers",
         "`/movers` - today's (or this week's/month's/3 months'/year's/5 years', pick from the "
         "dropdown) top gainers, top losers, and most active stocks, filtered to real, well-known "
         "companies. Toggle between the three with the buttons underneath, same data as the "
-        "website's Market Movers panel.",
+        "website's Market Movers panel.\n"
+        "`/fgi` - the crypto market's Fear & Greed Index right now.",
     ),
     (
-        "⭐ Analyst Ratings",
+        "⭐ Analyst Ratings & Sentiment",
         "`/rating <ticker>` - the full buy/hold/sell breakdown from Wall Street analysts, the "
         "average price target, and an AI-written take explaining why the rating looks the way it "
-        "does. This is Investo's replacement for TipRanks.",
+        "does. This is Investo's replacement for TipRanks.\n"
+        "`/sentiment <ticker>` - an AI read on current news sentiment, bullish, bearish, or mixed, "
+        "grounded in real recent headlines, not a free-floating score.\n"
+        "`/company_overview <ticker>` - business description, sector, industry, and valuation "
+        "metrics like P/E, P/B, dividend yield, and beta.",
     ),
     (
         "📰 News",
@@ -72,6 +78,13 @@ SECTIONS = [
         "@ mention the bot with a question about a stock, investing in general, or a follow-up to "
         "something it already said (reply to its message to keep the thread going), and it'll answer "
         "using an AI that pulls in live prices for any ticker you mention.",
+    ),
+    (
+        "💬 Feedback & Status",
+        "`/feedback <message> [category]` - send a bug report, suggestion, or general feedback "
+        "straight to the bot owner.\n"
+        "`/status` - checks Discord latency, the database, Yahoo Finance, and today's Gemini usage, "
+        "shows what's actually responding right now.",
     ),
 ]
 
