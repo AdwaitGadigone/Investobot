@@ -91,12 +91,45 @@ def _fetch_finnhub_quote_sync(ticker: str) -> dict | None:
     return quote
 
 
+# The Yahoo call (_fetch_quote_sync) was being re-run fresh on every /stock, /rating, /alert, scheduler pass,
+# etc, with no caching at all, one of the biggest avoidable sources of Yahoo load and latency in the whole bot.
+# Finnhub's real-time price is deliberately NOT cached here, it's the one piece meant to stay live every call.
+_QUOTE_CACHE_TTL = 20.0
+_quote_cache: dict[str, tuple[dict, float]] = {}
+_quote_inflight: dict[str, asyncio.Task] = {}
+
+
+async def _cached_yahoo_quote(ticker: str) -> dict:
+    now = time.time()
+    cached = _quote_cache.get(ticker)
+    if cached and now - cached[1] < _QUOTE_CACHE_TTL:
+        # A copy, not the cached object itself, get_quote() mutates its result to merge in Finnhub's fields
+        # and must never corrupt the shared cache entry other concurrent/later callers still read from.
+        return dict(cached[0])
+
+    task = _quote_inflight.get(ticker)
+    if task is None:
+        # Concurrent callers for the same ticker (a busy /movers pass, several users querying one popular
+        # stock at once) share this one fetch instead of each firing an independent Yahoo request.
+        task = asyncio.ensure_future(asyncio.to_thread(_fetch_quote_sync, ticker))
+        _quote_inflight[ticker] = task
+
+        def _store(t: asyncio.Task, ticker: str = ticker) -> None:
+            _quote_inflight.pop(ticker, None)
+            if not t.cancelled() and t.exception() is None:
+                _quote_cache[ticker] = (t.result(), time.time())
+
+        task.add_done_callback(_store)
+
+    return dict(await task)
+
+
 async def get_quote(ticker: str) -> dict:
     # Runs concurrently, Yahoo still supplies name/market cap/range but Finnhub's real-time US price wins when it covers the ticker.
     try:
         yahoo_quote, finnhub_quote = await asyncio.wait_for(
             asyncio.gather(
-                asyncio.to_thread(_fetch_quote_sync, ticker),
+                _cached_yahoo_quote(ticker),
                 asyncio.to_thread(_fetch_finnhub_quote_sync, ticker),
             ),
             timeout=_QUOTE_TIMEOUT_SECONDS,
@@ -137,11 +170,39 @@ def _fetch_price_history_sync(ticker: str, period: str, interval: str):
     return history
 
 
+# Same gap as the quote cache above, /stock re-fetched a chart's full history from scratch on every call,
+# including every click of the range dropdown, with nothing shared even between identical back-to-back requests.
+# Intraday intervals still move through the trading day so get a short TTL, daily-bar-and-up don't change
+# until the next close so a longer TTL costs nothing in accuracy.
+_HISTORY_CACHE_TTL_INTRADAY = 60.0
+_HISTORY_CACHE_TTL_DAILY = 5 * 60.0
+_history_cache: dict[str, tuple[object, float]] = {}
+_history_inflight: dict[str, asyncio.Task] = {}
+
+
 async def get_price_history(ticker: str, period: str, interval: str):
+    cache_key = f"{ticker}:{period}:{interval}"
+    ttl = _HISTORY_CACHE_TTL_INTRADAY if interval.endswith("m") or interval.endswith("h") else _HISTORY_CACHE_TTL_DAILY
+
+    now = time.time()
+    cached = _history_cache.get(cache_key)
+    if cached and now - cached[1] < ttl:
+        return cached[0]
+
+    task = _history_inflight.get(cache_key)
+    if task is None:
+        task = asyncio.ensure_future(asyncio.to_thread(_fetch_price_history_sync, ticker, period, interval))
+        _history_inflight[cache_key] = task
+
+        def _store(t: asyncio.Task, cache_key: str = cache_key) -> None:
+            _history_inflight.pop(cache_key, None)
+            if not t.cancelled() and t.exception() is None:
+                _history_cache[cache_key] = (t.result(), time.time())
+
+        task.add_done_callback(_store)
+
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(_fetch_price_history_sync, ticker, period, interval), timeout=_QUOTE_TIMEOUT_SECONDS
-        )
+        return await asyncio.wait_for(asyncio.shield(task), timeout=_QUOTE_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
         raise MarketDataTimeoutError(ticker) from None
     except CurlRequestException:
