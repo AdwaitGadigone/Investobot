@@ -334,6 +334,15 @@ async def disable_digest(guild_id: int, user_id: int) -> bool:
         return _affected(status) > 0
 
 
+async def get_digest_content(guild_id: int, user_id: int) -> str | None:
+    # None means never opted in, distinct from a real saved preference, /digest_now falls back to "both" for that case.
+    async with _pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT content FROM digest_optin WHERE guild_id = $1 AND user_id = $2",
+            guild_id, user_id,
+        )
+
+
 async def set_digest_content(guild_id: int, user_id: int, content: str) -> None:
     async with _pool.acquire() as conn:
         await conn.execute(
