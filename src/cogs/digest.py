@@ -2,7 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import LIGHT_COOLDOWN_SECONDS
+from config import HEAVY_COOLDOWN_SECONDS, LIGHT_COOLDOWN_SECONDS
+from cogs.scheduler import DigestView, _build_digest_embed
 from services import db
 
 
@@ -54,6 +55,28 @@ class Digest(commands.Cog):
         # Already on, content given: update the preference in place instead of toggling off.
         await db.set_digest_content(guild_id, user_id, content.value)
         await interaction.response.send_message(f"Daily digest now includes: **{content.name}**.")
+
+    @app_commands.command(
+        name="digest_now",
+        description="Send yourself the daily digest right now, for testing or if the morning one didn't show up",
+    )
+    @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
+    async def digest_now(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id
+        user_id = interaction.user.id
+        # Works whether or not the daily DM is turned on, "both" matches DigestContentSelect's own default.
+        content = await db.get_digest_content(guild_id, user_id) or "both"
+
+        await interaction.response.defer(ephemeral=True)
+        embed = await _build_digest_embed(guild_id, user_id, content)
+        try:
+            await interaction.user.send(embed=embed, view=DigestView(guild_id, user_id, content))
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "Couldn't DM you, check that your privacy settings allow DMs from server members."
+            )
+            return
+        await interaction.followup.send("Sent, check your DMs.")
 
 
 async def setup(bot: commands.Bot):

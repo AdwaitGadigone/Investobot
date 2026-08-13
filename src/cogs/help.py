@@ -63,7 +63,8 @@ SECTIONS = [
         "`/alert list` - show your alerts and their ID numbers\n"
         "`/alert remove <alert_id>` - cancel one\n"
         "`/notify` - toggle the Stock Alerts role, anyone with it gets pinged on the automatic updates below\n"
-        "`/digest` - toggle a daily DM summarizing your watchlist, sent every morning",
+        "`/digest` - toggle a daily DM summarizing your watchlist, sent every morning\n"
+        "`/digest_now` - send that DM right now instead of waiting for the morning schedule",
     ),
     (
         "🔁 Automatic Updates",
