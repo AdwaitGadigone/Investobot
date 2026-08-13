@@ -47,6 +47,23 @@ def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote:
     )
 
 
+def _truncate_field(lines: list[str], prefix: str = "") -> str:
+    # Embed field values cap at 1024 chars, a big enough watchlist/portfolio could exceed that with no
+    # warning, the scheduled digest would just silently fail to send and the dropdown would hang forever
+    # on "thinking..." with no error shown, same overflow /portfolio view already guards against.
+    shown = list(lines)
+    hidden = 0
+    while True:
+        body = "```ansi\n" + prefix + "\n".join(shown) + "\n```"
+        # The "+N more" note itself has to count against the 1024 budget too, not just the code block,
+        # checking only the block first and appending the note after already blew past the real limit.
+        note = f"\n*+{hidden} more, see the full list on the website.*" if hidden else ""
+        if len(body + note) <= 1024 or not shown:
+            return body + note
+        shown = shown[:-1]
+        hidden += 1
+
+
 def _portfolio_digest_summary(total_value: float, total_today: float, total_pl: float, total_cost: float) -> str:
     # Sits above the per-position lines, same shape as the "Total value / Today / All-time" cards on the website.
     esc = chr(27)
@@ -93,7 +110,7 @@ async def _build_digest_embed(
             priced_tickers.sort(key=lambda t: quote_cache[t]["change_pct"], reverse=True)
             lines = [_digest_line(quote_cache[t]) for t in priced_tickers]
             if lines:
-                embed.add_field(name="👀 Watchlist", value="```ansi\n" + "\n".join(lines) + "\n```", inline=False)
+                embed.add_field(name="👀 Watchlist", value=_truncate_field(lines), inline=False)
 
     if content in ("portfolio", "both"):
         positions = await db.get_portfolio(guild_id, user_id)
@@ -113,11 +130,7 @@ async def _build_digest_embed(
                 ]
                 # The summary's own ANSI codes need to be inside the same ```ansi fence as the lines below it,
                 # a fence opened AFTER it left those escape codes rendering as literal garbled characters.
-                embed.add_field(
-                    name="💼 Portfolio",
-                    value="```ansi\n" + summary + "\n" + "\n".join(lines) + "\n```",
-                    inline=False,
-                )
+                embed.add_field(name="💼 Portfolio", value=_truncate_field(lines, prefix=summary + "\n"), inline=False)
 
     if not embed.fields:
         # embed.fields stays empty either way, so callers can still tell "nothing to show" apart from real content.
@@ -146,7 +159,13 @@ class DigestContentSelect(discord.ui.Select):
         # Persisted, so tomorrow's auto-send opens on whatever the user last picked here too.
         await db.set_digest_content(self.guild_id, self.user_id, content)
         embed = await _build_digest_embed(self.guild_id, self.user_id, content)
-        await interaction.edit_original_response(embed=embed, view=DigestView(self.guild_id, self.user_id, content))
+        try:
+            await interaction.edit_original_response(embed=embed, view=DigestView(self.guild_id, self.user_id, content))
+        except discord.HTTPException:
+            # _truncate_field above should already prevent this, but a stuck "thinking..." with zero
+            # feedback is worse than an honest error, this is a safety net not the primary fix.
+            log.exception("Failed to edit digest message for user %s", self.user_id)
+            await interaction.followup.send("Couldn't update the digest, try `/digest` again in a bit.", ephemeral=True)
 
 
 class DigestView(discord.ui.View):
@@ -203,9 +222,7 @@ async def _build_server_digest_embed(
     if tickers:
         rows = await _server_digest_rows(tickers, period)
         if rows:
-            embed.add_field(
-                name="📋 Tracked", value="```ansi\n" + "\n".join(_digest_line(r) for r in rows) + "\n```", inline=False
-            )
+            embed.add_field(name="📋 Tracked", value=_truncate_field([_digest_line(r) for r in rows]), inline=False)
         else:
             embed.description = "No data available for the tracked list right now."
     else:
@@ -245,7 +262,11 @@ class ServerDigestPeriodSelect(discord.ui.Select):
         period = self.values[0]
         embed = await _build_server_digest_embed(self.tickers, period, self.include_movers, self.big_movers)
         view = ServerDigestView(self.tickers, period, self.include_movers, self.big_movers)
-        await interaction.edit_original_response(embed=embed, view=view)
+        try:
+            await interaction.edit_original_response(embed=embed, view=view)
+        except discord.HTTPException:
+            log.exception("Failed to edit server digest message for guild %s", interaction.guild_id)
+            await interaction.followup.send("Couldn't update the digest, try `/serverdigest` again in a bit.", ephemeral=True)
 
 
 class ServerDigestView(discord.ui.View):
@@ -323,6 +344,10 @@ class Scheduler(commands.Cog):
 
         # Fetches every tracked ticker across every server in one go, grouped by server.
         tracked_by_guild = await db.all_tracked_by_guild()
+        # Same one-query-for-everyone treatment, used to be a separate get_last_alert_date query per
+        # (guild, ticker) pair every single loop, that's every tracked ticker on every server, every
+        # CHECK_INTERVAL_MINUTES, for a single column already sitting right there in the tracked table.
+        alert_dates_by_guild = await db.all_last_alert_dates_by_guild()
         today = datetime.now(timezone.utc).date().isoformat()
         # Shared across every guild in this pass, so a ticker tracked by 3 servers is fetched once, not 3 times.
         quote_cache: dict[str, dict] = {}
@@ -351,7 +376,7 @@ class Scheduler(commands.Cog):
                         continue
 
                 quote = quote_cache[ticker]
-                last_alert = await db.get_last_alert_date(guild_id, ticker)
+                last_alert = alert_dates_by_guild.get(guild_id, {}).get(ticker)
                 if abs(quote["change_pct"]) >= BIG_MOVE_THRESHOLD_PCT and last_alert != today:
                     embed = build_quote_embed(quote)
                     embed.title = f"📈 Big move: {embed.title}" if quote["change"] >= 0 else f"📉 Big move: {embed.title}"

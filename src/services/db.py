@@ -185,13 +185,17 @@ async def all_tracked_by_guild() -> dict[int, list[str]]:
     return result
 
 
-async def get_last_alert_date(guild_id: int, ticker: str) -> str | None:
-    # Lets the scheduler post a "big move" alert once per ticker per day instead of every 15 minutes.
+async def all_last_alert_dates_by_guild() -> dict[int, dict[str, str | None]]:
+    # One query for every server's last-alert dates, instead of a separate query per (guild, ticker) pair,
+    # _check_movers used to do exactly that every CHECK_INTERVAL_MINUTES, this is that same table already
+    # queried by all_tracked_by_guild above, just carrying the extra column along instead of a second round trip.
     async with _pool.acquire() as conn:
-        return await conn.fetchval(
-            "SELECT last_alert_date FROM tracked WHERE guild_id = $1 AND ticker = $2",
-            guild_id, ticker,
-        )
+        rows = await conn.fetch("SELECT guild_id, ticker, last_alert_date FROM tracked")
+
+    result: dict[int, dict[str, str | None]] = {}
+    for row in rows:
+        result.setdefault(row["guild_id"], {})[row["ticker"]] = row["last_alert_date"]
+    return result
 
 
 async def set_last_alert_date(guild_id: int, ticker: str, date_str: str) -> None:

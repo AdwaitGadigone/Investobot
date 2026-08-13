@@ -19,19 +19,23 @@ def _parse_tickers(raw: str, limit: int = 25) -> list[str]:
     return seen[:limit]
 
 
-async def _validate_tickers(tickers: list[str]) -> tuple[list[str], list[str]]:
+async def _validate_tickers(tickers: list[str]) -> tuple[list[str], list[str], list[str]]:
     # Checks every ticker at once instead of one at a time, so adding 10 tickers isn't 10x slower than adding 1.
     results = await asyncio.gather(
         *(market_data.get_quote(t) for t in tickers), return_exceptions=True
     )
 
-    valid, invalid = [], []
+    valid, invalid, unavailable = [], [], []
     for ticker, result in zip(tickers, results):
-        if isinstance(result, Exception):
+        if isinstance(result, market_data.MarketDataTimeoutError):
+            # A Yahoo Finance hiccup, not proof the ticker doesn't exist, every single-ticker command
+            # in this bot already tells these apart, this shared helper was the one place that didn't.
+            unavailable.append(ticker)
+        elif isinstance(result, Exception):
             invalid.append(ticker)
         else:
             valid.append(ticker)
-    return valid, invalid
+    return valid, invalid, unavailable
 
 
 class Watchlist(commands.Cog):
@@ -59,7 +63,7 @@ class Watchlist(commands.Cog):
             await interaction.followup.send("Didn't catch any tickers in that, try something like `AAPL, MSFT, NVDA`.")
             return
 
-        valid, invalid = await _validate_tickers(requested)
+        valid, invalid, unavailable = await _validate_tickers(requested)
 
         added, already = [], []
         for ticker in valid:
@@ -76,6 +80,8 @@ class Watchlist(commands.Cog):
             lines.append(f"Already on your watchlist: {', '.join(already)}")
         if invalid:
             lines.append(f"Not valid tickers, skipped: {', '.join(invalid)}")
+        if unavailable:
+            lines.append(f"Yahoo Finance is being slow right now, try again in a bit: {', '.join(unavailable)}")
         await interaction.followup.send("\n".join(lines))
 
     @watchlist_group.command(name="remove", description="Remove a ticker from your personal watchlist")
@@ -105,7 +111,7 @@ class Watchlist(commands.Cog):
             await interaction.followup.send("Didn't catch any tickers in that, try something like `AAPL, MSFT, NVDA`.")
             return
 
-        valid, invalid = await _validate_tickers(requested)
+        valid, invalid, unavailable = await _validate_tickers(requested)
 
         # Unlike the watchlist above, this list isn't tied to one user, everyone in the server shares it.
         added, already = [], []
@@ -122,6 +128,8 @@ class Watchlist(commands.Cog):
             lines.append(f"Already tracked: {', '.join(already)}")
         if invalid:
             lines.append(f"Not valid tickers, skipped: {', '.join(invalid)}")
+        if unavailable:
+            lines.append(f"Yahoo Finance is being slow right now, try again in a bit: {', '.join(unavailable)}")
         await interaction.followup.send("\n".join(lines))
 
     @track_group.command(name="remove", description="Remove a ticker from the server's shared tracked list")
