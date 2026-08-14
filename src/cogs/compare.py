@@ -6,6 +6,7 @@ from discord.ext import commands
 
 from config import HEAVY_COOLDOWN_SECONDS
 from services import market_data
+from services.ticker_search import ticker_autocomplete
 
 
 def _fmt_num(n: float | None) -> str:
@@ -54,6 +55,7 @@ class Compare(commands.Cog):
         ticker1="First stock ticker symbol, e.g. AAPL",
         ticker2="Second stock ticker symbol, e.g. MSFT",
     )
+    @app_commands.autocomplete(ticker1=ticker_autocomplete, ticker2=ticker_autocomplete)
     async def compare(self, interaction: discord.Interaction, ticker1: str, ticker2: str):
         await interaction.response.defer()
         ticker1 = ticker1.upper().strip()
