@@ -18,7 +18,20 @@ from services import db, market_data
 log = logging.getLogger("investo.scheduler")
 
 
-def _digest_line(quote: dict) -> str:
+# CDR tickers (WDC.NE, TSLA.NE, XEQT.TO...) run 2-4 chars longer than a plain US ticker, a fixed <6
+# padding looked fine until one of those showed up and threw off every column after it for the rest
+# of the list, this cap is generous enough for the longest realistic symbol without wasting space
+# on every line just because one CDR happened to be in the list.
+_MAX_TICKER_WIDTH = 10
+
+
+def _ticker_width(tickers) -> int:
+    # Computed per-list instead of a single global constant, so a watchlist of only short tickers still
+    # aligns tight, this is what actually guarantees every column lines up regardless of what's in it.
+    return min(max((len(t) for t in tickers), default=6), _MAX_TICKER_WIDTH)
+
+
+def _digest_line(quote: dict, ticker_width: int = 6) -> str:
     # Same ANSI color trick as cogs/stocks.py's quote embed, one line per ticker in the digest DM.
     esc = chr(27)
     is_up = quote["change_pct"] >= 0
@@ -26,12 +39,12 @@ def _digest_line(quote: dict) -> str:
     arrow = "▲" if is_up else "▼"
     reset = f"{esc}[0m"
     return (
-        f"{esc}[1;{color_code}m{quote['ticker']:<6}${quote['price']:>10,.2f}  "
+        f"{esc}[1;{color_code}m{quote['ticker']:<{ticker_width}} ${quote['price']:>10,.2f}  "
         f"{arrow} {quote['change_pct']:+.2f}%{reset}"
     )
 
 
-def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote: dict) -> str:
+def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote: dict, ticker_width: int = 6) -> str:
     # Value + today's move + all-time P/L on one line, same ANSI-color pattern as the watchlist line above.
     esc = chr(27)
     reset = f"{esc}[0m"
@@ -42,24 +55,56 @@ def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote:
     color_code = "32" if pl_pct >= 0 else "31"
     today_arrow = "▲" if quote["change_pct"] >= 0 else "▼"
     return (
-        f"{esc}[1;{color_code}m{ticker:<6}${value:>9,.2f}  "
+        f"{esc}[1;{color_code}m{ticker:<{ticker_width}} ${value:>9,.2f}  "
         f"today {today_arrow}{quote['change_pct']:+.2f}%  P/L {pl_pct:+.1f}%{reset}"
     )
 
 
-def _truncate_field(lines: list[str], prefix: str = "") -> str:
-    # Embed field values cap at 1024 chars, a big enough watchlist/portfolio could exceed that with no
-    # warning, the scheduled digest would just silently fail to send and the dropdown would hang forever
-    # on "thinking..." with no error shown, same overflow /portfolio view already guards against.
-    shown = list(lines)
+_MAX_FIELD_CHUNKS = 4
+
+
+def _chunk_field(lines: list[str], prefix: str = "") -> list[str]:
+    # Embed field values cap at 1024 chars each, but a message can hold up to 25 fields, splitting a big
+    # watchlist/portfolio across a few fields instead of cutting it off after one lets someone actually
+    # see their whole list instead of a "+N more, see the website" note for anything past the first ~16 lines.
+    if not lines:
+        return ["```ansi\n" + prefix + "\n```"]
+
+    chunks: list[str] = []
+    line_counts: list[int] = []
+    current: list[str] = []
+    current_prefix = prefix
+    for line in lines:
+        candidate = "```ansi\n" + current_prefix + "\n".join(current + [line]) + "\n```"
+        if len(candidate) > 1024 and current:
+            chunks.append("```ansi\n" + current_prefix + "\n".join(current) + "\n```")
+            line_counts.append(len(current))
+            current = [line]
+            current_prefix = ""  # The summary prefix only belongs above the very first chunk.
+        else:
+            current.append(line)
+    if current:
+        chunks.append("```ansi\n" + current_prefix + "\n".join(current) + "\n```")
+        line_counts.append(len(current))
+
+    if len(chunks) <= _MAX_FIELD_CHUNKS:
+        return chunks
+
+    # A genuinely enormous list (hundreds of tickers) could still outrun a reasonable number of fields,
+    # this is the last-resort fallback for that edge case, not the normal path anymore. Whatever didn't
+    # fit in the first few chunks gets squeezed into one final capped chunk, with the "+N more" note
+    # itself counted against the 1024 budget on every shrink, not appended after already being at the
+    # limit, the exact off-by-limit mistake made (and caught) once already earlier in this same file.
+    kept = chunks[: _MAX_FIELD_CHUNKS - 1]
+    consumed = sum(line_counts[: _MAX_FIELD_CHUNKS - 1])
+    shown = lines[consumed:]
     hidden = 0
     while True:
-        body = "```ansi\n" + prefix + "\n".join(shown) + "\n```"
-        # The "+N more" note itself has to count against the 1024 budget too, not just the code block,
-        # checking only the block first and appending the note after already blew past the real limit.
+        body = "```ansi\n" + "\n".join(shown) + "\n```"
         note = f"\n*+{hidden} more, see the full list on the website.*" if hidden else ""
         if len(body + note) <= 1024 or not shown:
-            return body + note
+            kept.append(body + note)
+            return kept
         shown = shown[:-1]
         hidden += 1
 
@@ -108,9 +153,11 @@ async def _build_digest_embed(
             # Biggest gainer first, biggest loser last, so the movers that actually matter aren't buried
             # alphabetically, plain ticker order told you nothing useful at a glance.
             priced_tickers.sort(key=lambda t: quote_cache[t]["change_pct"], reverse=True)
-            lines = [_digest_line(quote_cache[t]) for t in priced_tickers]
-            if lines:
-                embed.add_field(name="👀 Watchlist", value=_truncate_field(lines), inline=False)
+            width = _ticker_width(priced_tickers)
+            lines = [_digest_line(quote_cache[t], width) for t in priced_tickers]
+            for i, chunk in enumerate(_chunk_field(lines)):
+                name = "👀 Watchlist" if i == 0 else "👀 Watchlist (cont.)"
+                embed.add_field(name=name, value=chunk, inline=False)
 
     if content in ("portfolio", "both"):
         positions = await db.get_portfolio(guild_id, user_id)
@@ -124,13 +171,16 @@ async def _build_digest_embed(
                 total_cost = sum(p["shares"] * p["cost_basis"] for p in priced)
                 total_today = sum(p["shares"] * quote_cache[p["ticker"]]["change"] for p in priced)
                 summary = _portfolio_digest_summary(total_value, total_today, total_value - total_cost, total_cost)
+                width = _ticker_width(p["ticker"] for p in priced)
                 lines = [
-                    _portfolio_digest_line(p["ticker"], p["shares"], p["cost_basis"], quote_cache[p["ticker"]])
+                    _portfolio_digest_line(p["ticker"], p["shares"], p["cost_basis"], quote_cache[p["ticker"]], width)
                     for p in priced
                 ]
                 # The summary's own ANSI codes need to be inside the same ```ansi fence as the lines below it,
                 # a fence opened AFTER it left those escape codes rendering as literal garbled characters.
-                embed.add_field(name="💼 Portfolio", value=_truncate_field(lines, prefix=summary + "\n"), inline=False)
+                for i, chunk in enumerate(_chunk_field(lines, prefix=summary + "\n")):
+                    name = "💼 Portfolio" if i == 0 else "💼 Portfolio (cont.)"
+                    embed.add_field(name=name, value=chunk, inline=False)
 
     if not embed.fields:
         # embed.fields stays empty either way, so callers can still tell "nothing to show" apart from real content.
@@ -162,7 +212,7 @@ class DigestContentSelect(discord.ui.Select):
         try:
             await interaction.edit_original_response(embed=embed, view=DigestView(self.guild_id, self.user_id, content))
         except discord.HTTPException:
-            # _truncate_field above should already prevent this, but a stuck "thinking..." with zero
+            # _chunk_field above should already prevent this, but a stuck "thinking..." with zero
             # feedback is worse than an honest error, this is a safety net not the primary fix.
             log.exception("Failed to edit digest message for user %s", self.user_id)
             await interaction.followup.send("Couldn't update the digest, try `/digest` again in a bit.", ephemeral=True)
@@ -222,7 +272,11 @@ async def _build_server_digest_embed(
     if tickers:
         rows = await _server_digest_rows(tickers, period)
         if rows:
-            embed.add_field(name="📋 Tracked", value=_truncate_field([_digest_line(r) for r in rows]), inline=False)
+            width = _ticker_width(r["ticker"] for r in rows)
+            lines = [_digest_line(r, width) for r in rows]
+            for i, chunk in enumerate(_chunk_field(lines)):
+                name = "📋 Tracked" if i == 0 else "📋 Tracked (cont.)"
+                embed.add_field(name=name, value=chunk, inline=False)
         else:
             embed.description = "No data available for the tracked list right now."
     else:
@@ -231,11 +285,12 @@ async def _build_server_digest_embed(
     if include_movers:
         # Filtered per-server so a ticker already shown in the tracked list above isn't repeated here too.
         tracked_set = set(tickers)
-        notable = [m for m in big_movers if m["ticker"] not in tracked_set]
+        notable = [m for m in big_movers if m["ticker"] not in tracked_set][:8]
         if notable:
+            width = _ticker_width(m["ticker"] for m in notable)
             embed.add_field(
                 name="🔥 Notable movers",
-                value="```ansi\n" + "\n".join(_digest_line(m) for m in notable[:8]) + "\n```",
+                value="```ansi\n" + "\n".join(_digest_line(m, width) for m in notable) + "\n```",
                 inline=False,
             )
 
