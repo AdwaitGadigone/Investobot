@@ -6,6 +6,15 @@ from discord.ext import commands
 
 from config import HEAVY_COOLDOWN_SECONDS, LIGHT_COOLDOWN_SECONDS
 from services import db, market_data
+from services.ticker_search import make_owned_autocomplete, ticker_autocomplete
+
+
+async def _my_portfolio_tickers(guild_id: int, user_id: int) -> list[str]:
+    positions = await db.get_portfolio(guild_id, user_id)
+    return [p["ticker"] for p in positions]
+
+
+_owned_ticker_autocomplete = make_owned_autocomplete(_my_portfolio_tickers)
 
 
 def _pl_line(ticker: str, shares: float, cost_basis: float, price: float) -> str:
@@ -38,6 +47,7 @@ class Portfolio(commands.Cog):
         shares="Number of shares bought",
         price="Price per share you paid",
     )
+    @app_commands.autocomplete(ticker=ticker_autocomplete)
     async def portfolio_buy(self, interaction: discord.Interaction, ticker: str, shares: float, price: float):
         ticker = ticker.upper().strip()
         if shares <= 0 or price <= 0:
@@ -62,6 +72,7 @@ class Portfolio(commands.Cog):
     @portfolio_group.command(name="sell", description="Log a sell, reduces or closes your position")
     @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     @app_commands.describe(ticker="Stock ticker symbol", shares="Number of shares sold")
+    @app_commands.autocomplete(ticker=_owned_ticker_autocomplete)
     async def portfolio_sell(self, interaction: discord.Interaction, ticker: str, shares: float):
         ticker = ticker.upper().strip()
         if shares <= 0:
@@ -83,6 +94,7 @@ class Portfolio(commands.Cog):
         shares="Correct total share count, leave blank to only change the average cost",
         avg_cost="Correct average cost per share, leave blank to only change the share count",
     )
+    @app_commands.autocomplete(ticker=_owned_ticker_autocomplete)
     async def portfolio_edit(
         self, interaction: discord.Interaction, ticker: str, shares: float = None, avg_cost: float = None
     ):
@@ -108,6 +120,7 @@ class Portfolio(commands.Cog):
 
     @portfolio_group.command(name="remove", description="Fully remove a position, regardless of share count")
     @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
+    @app_commands.autocomplete(ticker=_owned_ticker_autocomplete)
     async def portfolio_remove(self, interaction: discord.Interaction, ticker: str):
         ticker = ticker.upper().strip()
         removed = await db.remove_position(interaction.guild_id, interaction.user.id, ticker)

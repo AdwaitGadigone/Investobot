@@ -4,6 +4,7 @@ from discord.ext import commands
 
 from config import LIGHT_COOLDOWN_SECONDS
 from services import db, market_data
+from services.ticker_search import ticker_autocomplete
 
 
 class Alerts(commands.Cog):
@@ -29,6 +30,7 @@ class Alerts(commands.Cog):
             app_commands.Choice(name="below", value="below"),
         ]
     )
+    @app_commands.autocomplete(ticker=ticker_autocomplete)
     async def alert_set(
         self,
         interaction: discord.Interaction,

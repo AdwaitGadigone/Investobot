@@ -5,6 +5,7 @@ from discord.ext import commands
 from config import HEAVY_COOLDOWN_SECONDS, LIGHT_COOLDOWN_SECONDS
 from services import market_data
 from services.sentiment import generate_sentiment
+from services.ticker_search import ticker_autocomplete
 
 
 class Insights(commands.Cog):
@@ -18,6 +19,7 @@ class Insights(commands.Cog):
     )
     @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
     @app_commands.describe(ticker="Stock ticker symbol, e.g. AAPL")
+    @app_commands.autocomplete(ticker=ticker_autocomplete)
     async def company_overview(self, interaction: discord.Interaction, ticker: str):
         await interaction.response.defer()
         ticker = ticker.upper().strip()
@@ -100,6 +102,7 @@ class Insights(commands.Cog):
     @app_commands.command(name="sentiment", description="AI read on current news sentiment for a ticker")
     @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
     @app_commands.describe(ticker="Stock ticker symbol, e.g. AAPL")
+    @app_commands.autocomplete(ticker=ticker_autocomplete)
     async def sentiment(self, interaction: discord.Interaction, ticker: str):
         await interaction.response.defer()
         ticker = ticker.upper().strip()

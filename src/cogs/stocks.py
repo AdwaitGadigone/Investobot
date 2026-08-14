@@ -6,6 +6,7 @@ from discord.ext import commands
 
 from config import HEAVY_COOLDOWN_SECONDS
 from services import charts, market_data
+from services.ticker_search import ticker_autocomplete
 
 
 def _fmt_num(n: float | None) -> str:
@@ -182,6 +183,7 @@ class Stocks(commands.Cog):
             for key, opts in charts.RANGE_OPTIONS.items()
         ]
     )
+    @app_commands.autocomplete(ticker=ticker_autocomplete)
     async def stock(
         self,
         interaction: discord.Interaction,

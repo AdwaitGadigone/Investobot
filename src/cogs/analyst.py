@@ -6,6 +6,7 @@ from discord.ext import commands
 
 from config import HEAVY_COOLDOWN_SECONDS
 from services import analyst_take, market_data
+from services.ticker_search import ticker_autocomplete
 
 
 class Analyst(commands.Cog):
@@ -19,6 +20,7 @@ class Analyst(commands.Cog):
     )
     @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
     @app_commands.describe(ticker="Stock ticker symbol, e.g. AAPL")
+    @app_commands.autocomplete(ticker=ticker_autocomplete)
     async def rating(self, interaction: discord.Interaction, ticker: str):
         # Defer first since gathering 4 API calls plus an AI summary takes a few seconds.
         await interaction.response.defer()

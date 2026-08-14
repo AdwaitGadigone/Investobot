@@ -7,6 +7,10 @@ from discord.ext import commands
 
 from config import HEAVY_COOLDOWN_SECONDS, LIGHT_COOLDOWN_SECONDS
 from services import db, market_data
+from services.ticker_search import make_owned_autocomplete
+
+_watchlist_autocomplete = make_owned_autocomplete(db.get_watchlist)
+_tracked_autocomplete = make_owned_autocomplete(lambda guild_id, user_id: db.get_tracked(guild_id))
 
 
 def _parse_tickers(raw: str, limit: int = 25) -> list[str]:
@@ -86,6 +90,7 @@ class Watchlist(commands.Cog):
 
     @watchlist_group.command(name="remove", description="Remove a ticker from your personal watchlist")
     @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
+    @app_commands.autocomplete(ticker=_watchlist_autocomplete)
     async def watchlist_remove(self, interaction: discord.Interaction, ticker: str):
         ticker = ticker.upper().strip()
         removed = await db.remove_from_watchlist(interaction.guild_id, interaction.user.id, ticker)
@@ -134,6 +139,7 @@ class Watchlist(commands.Cog):
 
     @track_group.command(name="remove", description="Remove a ticker from the server's shared tracked list")
     @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
+    @app_commands.autocomplete(ticker=_tracked_autocomplete)
     async def track_remove(self, interaction: discord.Interaction, ticker: str):
         ticker = ticker.upper().strip()
         removed = await db.remove_tracked(interaction.guild_id, ticker)

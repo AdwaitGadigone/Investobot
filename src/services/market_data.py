@@ -447,9 +447,14 @@ async def get_market_movers() -> dict:
 
     for period in _PERIOD_DAYS:
         sorted_by_period = sorted(valid, key=lambda r: r["changes"][period]["pct"], reverse=True)
+        # Same guard as the day gainers/losers screener above: this universe is only 25 tickers, if fewer
+        # than 5 of them are actually down over a given period, just taking the bottom 5 by rank let a real
+        # gainer (e.g. AAL at +0.53% over a month where only 4 of the 25 were down) show up under "Losers".
+        gainers = [r for r in sorted_by_period if r["changes"][period]["pct"] >= 0][:5]
+        losers = [r for r in sorted_by_period if r["changes"][period]["pct"] <= 0][-5:][::-1]
         movers[period] = {
-            "gainers": [_period_row(r, period) for r in sorted_by_period[:5]],
-            "losers": [_period_row(r, period) for r in sorted_by_period[-5:][::-1]],
+            "gainers": [_period_row(r, period) for r in gainers],
+            "losers": [_period_row(r, period) for r in losers],
             "active": active,
         }
 
