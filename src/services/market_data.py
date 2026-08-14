@@ -310,8 +310,25 @@ def _screener_by_market_cap_sync(scr_id: str, count: int = 40, limit: int = 5) -
         and (q.get("shortName") or q.get("longName"))
         and q.get("regularMarketPrice") is not None
         and q.get("marketCap") is not None
+        and q.get("regularMarketChangePercent") is not None
     ]
-    quotes.sort(key=lambda q: q["marketCap"], reverse=True)
+
+    # Yahoo's own day_gainers/day_losers screener bucket can momentarily lag behind the live change
+    # field during a fast-moving session, a ticker that was up when Yahoo last ranked the list can
+    # have already flipped negative by the time this same response's price field is read. Trusting
+    # the screener's category label alone let an actual loser show up inside "Top Gainers" on Discord,
+    # this is the real guard against that happening again, not just a display-order cleanup.
+    if scr_id == "day_gainers":
+        quotes = [q for q in quotes if q["regularMarketChangePercent"] >= 0]
+    elif scr_id == "day_losers":
+        quotes = [q for q in quotes if q["regularMarketChangePercent"] <= 0]
+
+    # Filters out thin-volume microcaps first (keeps only the bigger half of real companies in this
+    # batch), then ranks THAT set by actual percent move, sorting the final list by market cap alone
+    # (the old behavior) meant "Top Gainers" was really "biggest companies that happened to be up",
+    # not ranked by how much they'd actually moved, which is what "Top" is supposed to mean here.
+    by_cap = sorted(quotes, key=lambda q: q["marketCap"], reverse=True)[: max(len(quotes) // 2, limit)]
+    by_cap.sort(key=lambda q: q["regularMarketChangePercent"], reverse=(scr_id != "day_losers"))
 
     return [
         {
@@ -319,9 +336,9 @@ def _screener_by_market_cap_sync(scr_id: str, count: int = 40, limit: int = 5) -
             "name": q.get("shortName") or q.get("longName"),
             "price": q["regularMarketPrice"],
             "change": q.get("regularMarketChange") or 0.0,
-            "change_pct": q.get("regularMarketChangePercent") or 0.0,
+            "change_pct": q["regularMarketChangePercent"],
         }
-        for q in quotes[:limit]
+        for q in by_cap[:limit]
     ]
 
 
