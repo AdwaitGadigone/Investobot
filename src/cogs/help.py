@@ -11,7 +11,9 @@ SECTIONS = [
         "`/stock <ticker> [range]` - price, day/52wk range, volume, market cap, a price+volume "
         "chart, and the analyst consensus, all in one embed. `range` picks the chart window: "
         "1 Day, 1 Week, 1 Month (default), 3 Months, 6 Months, Year to Date, 1 Year, or 5 Years.\n"
-        "`/compare <ticker1> <ticker2>` - price, market cap, and analyst consensus for two tickers side by side.",
+        "`/compare <ticker1> <ticker2>` - price, market cap, and analyst consensus for two tickers side by side.\n"
+        "Don't know the exact ticker? Start typing a company or asset name in any ticker field, like "
+        "`stock` or `alert set`, and pick from the live suggestions instead of guessing.",
     ),
     (
         "📈 Market Movers",
