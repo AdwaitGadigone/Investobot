@@ -46,6 +46,9 @@ def _digest_line(quote: dict, ticker_width: int = 6) -> str:
 
 def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote: dict, ticker_width: int = 6) -> str:
     # Value + today's move + all-time P/L on one line, same ANSI-color pattern as the watchlist line above.
+    # Shorter than it used to be on purpose: Discord's ansi code block isn't perfectly monospace on every
+    # client, so a longer line drifts further out of alignment by the time it reaches the right edge, this
+    # is the same tight shape watchlist's line already uses, just with a second P/L column tacked on.
     esc = chr(27)
     reset = f"{esc}[0m"
     price = quote["price"]
@@ -54,9 +57,10 @@ def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote:
     pl_pct = ((value - cost) / cost * 100) if cost else 0.0
     color_code = "32" if pl_pct >= 0 else "31"
     today_arrow = "▲" if quote["change_pct"] >= 0 else "▼"
+    pl_arrow = "▲" if pl_pct >= 0 else "▼"
     return (
         f"{esc}[1;{color_code}m{ticker:<{ticker_width}} ${value:>9,.2f}  "
-        f"today {today_arrow}{quote['change_pct']:+.2f}%  P/L {pl_pct:+.1f}%{reset}"
+        f"{today_arrow}{quote['change_pct']:+.2f}%  {pl_arrow}{pl_pct:+.1f}%{reset}"
     )
 
 
@@ -176,9 +180,13 @@ async def _build_digest_embed(
                     _portfolio_digest_line(p["ticker"], p["shares"], p["cost_basis"], quote_cache[p["ticker"]], width)
                     for p in priced
                 ]
+                # Each row dropped its "today"/"P/L" text labels to stay short (a long ANSI line drifts
+                # further out of alignment on Discord clients that don't render the code block perfectly
+                # monospace), this one-time header is what still tells the two arrow+percent columns apart.
+                header = " " * (width + 12) + "today     p/l\n"
                 # The summary's own ANSI codes need to be inside the same ```ansi fence as the lines below it,
                 # a fence opened AFTER it left those escape codes rendering as literal garbled characters.
-                for i, chunk in enumerate(_chunk_field(lines, prefix=summary + "\n")):
+                for i, chunk in enumerate(_chunk_field(lines, prefix=summary + "\n" + header)):
                     name = "💼 Portfolio" if i == 0 else "💼 Portfolio (cont.)"
                     embed.add_field(name=name, value=chunk, inline=False)
 
