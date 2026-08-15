@@ -66,7 +66,9 @@ SECTIONS = [
         "`/alert remove <alert_id>` - cancel one\n"
         "`/notify` - toggle the Stock Alerts role, anyone with it gets pinged on the automatic updates below\n"
         "`/digest` - toggle a daily DM summarizing your watchlist, sent every morning\n"
-        "`/digest_now` - send that DM right now instead of waiting for the morning schedule",
+        "`/digest_now` - send that DM right now instead of waiting for the morning schedule\n"
+        "Slash commands don't work in my DMs, so if you're already in one, just send the word `digest` "
+        "instead and I'll send the same thing.",
     ),
     (
         "🔁 Automatic Updates",

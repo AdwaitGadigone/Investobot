@@ -26,6 +26,7 @@ tracking makes a big move. Everything here also lives on a companion website at
 | `/notify` | Toggles the Stock Alerts role, so you get pinged whenever the automatic updates post something |
 | `/digest [content]` | Toggles a personal DM every morning summarizing your watchlist, portfolio, or both. A dropdown right on the DM lets you switch what it shows afterward too |
 | `/digest_now` | Sends that same DM immediately instead of waiting for the morning schedule, works whether the daily one is on or off |
+| DM the bot "digest" | Same as `/digest_now`, but works from inside a DM, since slash commands can't be run there |
 | `/serverdigest set \| off` | Admin-only (Manage Server). Posts a daily digest of the server's tracked list to a channel of your choice, with a switchable time window and a section flagging other big movers |
 | `/feedback <message> [category]` | Send a bug report, suggestion, or general feedback straight to the bot owner |
 | `/status` | Checks Discord latency, the database, Yahoo Finance, and today's Gemini usage, and shows what's actually responding right now |
