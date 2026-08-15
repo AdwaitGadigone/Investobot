@@ -360,6 +360,16 @@ async def is_digest_enabled(guild_id: int, user_id: int) -> bool:
         return row is not None
 
 
+async def get_digest_optins_for_user(user_id: int) -> list[tuple[int, str]]:
+    # A DM has no guild context, unlike a slash command run inside a server, this is how the DM-triggered
+    # digest figures out which server(s) this specific person's opt-in(s) actually live in.
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT guild_id, content FROM digest_optin WHERE user_id = $1", user_id
+        )
+        return [(r["guild_id"], r["content"]) for r in rows]
+
+
 async def all_digest_optins() -> list[tuple[int, int, str]]:
     # Same one-query-for-everyone pattern as all_tracked_by_guild above.
     async with _pool.acquire() as conn:
