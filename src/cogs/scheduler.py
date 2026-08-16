@@ -58,9 +58,14 @@ def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote:
     color_code = "32" if pl_pct >= 0 else "31"
     today_arrow = "▲" if quote["change_pct"] >= 0 else "▼"
     pl_arrow = "▲" if pl_pct >= 0 else "▼"
+    # Both percentages are right-aligned to a fixed width, not just however many characters the number
+    # happens to take, a single double-digit swing (a real P/L easily hits +100% or more over time) would
+    # otherwise shift every column after it out of line for that one row, throwing off the whole list.
+    today_str = f"{quote['change_pct']:+.2f}%"
+    pl_str = f"{pl_pct:+.1f}%"
     return (
-        f"{esc}[1;{color_code}m{ticker:<{ticker_width}} ${value:>9,.2f}  "
-        f"{today_arrow}{quote['change_pct']:+.2f}%  {pl_arrow}{pl_pct:+.1f}%{reset}"
+        f"{esc}[1;{color_code}m{ticker:<{ticker_width}} ${value:>9,.2f} "
+        f"{today_arrow}{today_str:>7} {pl_arrow}{pl_str:>7}{reset}"
     )
 
 
@@ -168,8 +173,15 @@ async def _build_digest_embed(
         if positions:
             await ensure_quotes([p["ticker"] for p in positions])
             priced = [p for p in positions if p["ticker"] in quote_cache]
-            # Same reasoning as the watchlist above, sorted by today's move, not insertion order.
-            priced.sort(key=lambda p: quote_cache[p["ticker"]]["change_pct"], reverse=True)
+            # Sorted by P/L, not today's move, a portfolio's headline number is how the position has
+            # actually done since you bought it, not its blip today, that's what watchlist is for.
+            # Shares cancel out of (value - cost) / cost, so this is equivalent to the per-position math
+            # in _portfolio_digest_line below without needing to build the full line just to sort by it.
+            def _pl_pct(p):
+                cost_basis = p["cost_basis"]
+                return (quote_cache[p["ticker"]]["price"] - cost_basis) / cost_basis * 100 if cost_basis else 0.0
+
+            priced.sort(key=_pl_pct, reverse=True)
             if priced:
                 total_value = sum(p["shares"] * quote_cache[p["ticker"]]["price"] for p in priced)
                 total_cost = sum(p["shares"] * p["cost_basis"] for p in priced)
@@ -183,7 +195,7 @@ async def _build_digest_embed(
                 # Each row dropped its "today"/"P/L" text labels to stay short (a long ANSI line drifts
                 # further out of alignment on Discord clients that don't render the code block perfectly
                 # monospace), this one-time header is what still tells the two arrow+percent columns apart.
-                header = " " * (width + 12) + "today     p/l\n"
+                header = " " * (width + 12) + f"{'today':>8} {'p/l':>8}\n"
                 # The summary's own ANSI codes need to be inside the same ```ansi fence as the lines below it,
                 # a fence opened AFTER it left those escape codes rendering as literal garbled characters.
                 for i, chunk in enumerate(_chunk_field(lines, prefix=summary + "\n" + header)):
