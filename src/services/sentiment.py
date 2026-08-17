@@ -5,7 +5,7 @@ from google import genai
 from google.genai import types
 
 from config import ANALYST_TAKE_MODEL, GEMINI_API_KEY
-from services import gemini_limiter
+from services import gemini_limiter, gemini_retry
 
 log = logging.getLogger("investo.sentiment")
 
@@ -34,7 +34,8 @@ def _generate_sync(prompt: str) -> str | None:
         return None
 
     try:
-        response = _client.models.generate_content(
+        response = gemini_retry.generate_with_retry(
+            _client,
             model=ANALYST_TAKE_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, max_output_tokens=1024),
