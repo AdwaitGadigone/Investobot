@@ -39,7 +39,7 @@ def _digest_line(quote: dict, ticker_width: int = 6) -> str:
     arrow = "▲" if is_up else "▼"
     reset = f"{esc}[0m"
     return (
-        f"{esc}[1;{color_code}m{quote['ticker']:<{ticker_width}} ${quote['price']:>10,.2f}  "
+        f"{esc}[1;{color_code}m{quote['ticker']:<{ticker_width}} ${quote['price']:>10,.2f}   "
         f"{arrow} {quote['change_pct']:+.2f}%{reset}"
     )
 
@@ -61,11 +61,13 @@ def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote:
     # Both percentages are right-aligned to a fixed width, not just however many characters the number
     # happens to take, a single double-digit swing (a real P/L easily hits +100% or more over time) would
     # otherwise shift every column after it out of line for that one row, throwing off the whole list.
+    # Same 2-decimal precision as every other percent in this embed, P/L used to be 1-decimal, matching
+    # everything else is what "formatting" actually means here, not just picking a shorter number.
     today_str = f"{quote['change_pct']:+.2f}%"
-    pl_str = f"{pl_pct:+.1f}%"
+    pl_str = f"{pl_pct:+.2f}%"
     return (
-        f"{esc}[1;{color_code}m{ticker:<{ticker_width}} ${value:>9,.2f} "
-        f"{today_arrow}{today_str:>7} {pl_arrow}{pl_str:>7}{reset}"
+        f"{esc}[1;{color_code}m{ticker:<{ticker_width}} ${value:>9,.2f}  "
+        f"{today_arrow}{today_str:>7}  {pl_arrow}{pl_str:>8}{reset}"
     )
 
 
@@ -127,10 +129,13 @@ def _portfolio_digest_summary(total_value: float, total_today: float, total_pl: 
     pl_pct = (total_pl / total_cost * 100) if total_cost else 0.0
     today_color = "32" if total_today >= 0 else "31"
     pl_color = "32" if total_pl >= 0 else "31"
+    # Labels padded to a common width and every percent at the same 2-decimal precision as the per-position
+    # rows below, "All-time" used to round to 1 decimal while "Today" used 2, an inconsistency worth fixing
+    # alongside the rest of this formatting pass, not just the numbers everyone actually complained about.
     return (
-        f"Total ${total_value:,.2f}\n"
-        f"{esc}[1;{today_color}mToday {total_today:+,.2f} ({today_pct:+.2f}%){reset}\n"
-        f"{esc}[1;{pl_color}mAll-time {total_pl:+,.2f} ({pl_pct:+.1f}%){reset}"
+        f"{'Total':<9}${total_value:,.2f}\n"
+        f"{esc}[1;{today_color}m{'Today':<9}{total_today:+,.2f} ({today_pct:+.2f}%){reset}\n"
+        f"{esc}[1;{pl_color}m{'All-time':<9}{total_pl:+,.2f} ({pl_pct:+.2f}%){reset}"
     )
 
 
@@ -195,7 +200,7 @@ async def _build_digest_embed(
                 # Each row dropped its "today"/"P/L" text labels to stay short (a long ANSI line drifts
                 # further out of alignment on Discord clients that don't render the code block perfectly
                 # monospace), this one-time header is what still tells the two arrow+percent columns apart.
-                header = " " * (width + 12) + f"{'today':>8} {'p/l':>8}\n"
+                header = " " * (width + 13) + f"{'today':>8}  {'p/l':>9}\n"
                 # The summary's own ANSI codes need to be inside the same ```ansi fence as the lines below it,
                 # a fence opened AFTER it left those escape codes rendering as literal garbled characters.
                 for i, chunk in enumerate(_chunk_field(lines, prefix=summary + "\n" + header)):
@@ -292,6 +297,9 @@ async def _build_server_digest_embed(
     if tickers:
         rows = await _server_digest_rows(tickers, period)
         if rows:
+            # Same as the personal digest's watchlist: biggest mover first, not whatever order /track
+            # added them in, this list was never actually sorted despite looking like it should be.
+            rows.sort(key=lambda r: r["change_pct"], reverse=True)
             width = _ticker_width(r["ticker"] for r in rows)
             lines = [_digest_line(r, width) for r in rows]
             for i, chunk in enumerate(_chunk_field(lines)):
@@ -305,7 +313,11 @@ async def _build_server_digest_embed(
     if include_movers:
         # Filtered per-server so a ticker already shown in the tracked list above isn't repeated here too.
         tracked_set = set(tickers)
-        notable = [m for m in big_movers if m["ticker"] not in tracked_set][:8]
+        notable = sorted(
+            (m for m in big_movers if m["ticker"] not in tracked_set),
+            key=lambda m: abs(m["change_pct"]),
+            reverse=True,
+        )[:8]
         if notable:
             width = _ticker_width(m["ticker"] for m in notable)
             embed.add_field(
