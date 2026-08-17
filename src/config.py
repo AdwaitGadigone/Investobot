@@ -62,8 +62,13 @@ ANALYST_TAKE_MODEL = "gemini-flash-latest"
 # Same free model, kept as its own setting in case chat and /rating ever need different tuning.
 CHAT_MODEL = "gemini-flash-latest"
 
-# Shared cap across every Gemini call (chat + analyst take), kept under the free tier so nothing ever bills, verify your exact quota at aistudio.google.com/rate-limit and adjust if it differs.
-GEMINI_RPM_LIMIT = 8
+# Shared cap across every Gemini call (chat + analyst take + sentiment), kept under the free tier so
+# nothing ever bills. Google's "latest" alias silently started resolving to gemini-3.7-flash at some
+# point, whose free tier is only 5 requests/minute, not whatever the old model's limit was, this had
+# drifted to 8 (over the real limit) and every request past the 5th in a busy minute was hitting a real
+# 429 from Google, not this limiter, confirmed live against the actual API before lowering it. Re-verify
+# at aistudio.google.com/rate-limit if this ever silently drifts again.
+GEMINI_RPM_LIMIT = 4
 GEMINI_RPD_LIMIT = 200
 
 # Per-user slash command cooldowns, seconds between uses of the same command. Light is for simple DB reads/writes.

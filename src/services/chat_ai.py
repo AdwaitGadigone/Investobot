@@ -6,7 +6,7 @@ from google import genai
 from google.genai import types
 
 from config import CHAT_MODEL, GEMINI_API_KEY
-from services import gemini_limiter, market_data
+from services import gemini_limiter, gemini_retry, market_data
 
 log = logging.getLogger("investo.chat_ai")
 
@@ -87,7 +87,8 @@ def _generate_sync(prompt: str) -> str | None:
         return None
 
     try:
-        response = _client.models.generate_content(
+        response = gemini_retry.generate_with_retry(
+            _client,
             model=CHAT_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
