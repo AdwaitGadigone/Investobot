@@ -58,16 +58,21 @@ class InvestoBot(commands.Bot):
             await self.load_extension(ext)
             log.info("Loaded extension %s", ext)
 
+        # Global sync is what actually registers every slash command in every server the bot is in,
+        # not just one. This used to be skipped entirely whenever DEV_GUILD_ID was set, meaning
+        # commands never synced anywhere except that one server, real-world proof: a bot list reviewer
+        # testing from a fresh server found no working commands at all, not even /help.
+        synced = await self.tree.sync()
+        log.info("Synced %d global commands (may take up to an hour to propagate to servers other than the dev guild)", len(synced))
+
         if DEV_GUILD_ID:
-            # Copies every command to this one server and syncs instantly, useful for testing.
+            # On top of the global sync above, also copy everything to this one server and sync it
+            # instantly, so changes show up immediately while developing instead of waiting out the
+            # global propagation delay every time.
             guild = discord.Object(id=int(DEV_GUILD_ID))
             self.tree.copy_global_to(guild=guild)
-            synced = await self.tree.sync(guild=guild)
-            log.info("Synced %d commands to dev guild %s", len(synced), DEV_GUILD_ID)
-        else:
-            # A global sync can take up to an hour to show up in every server the bot is in.
-            synced = await self.tree.sync()
-            log.info("Synced %d global commands (may take up to an hour to propagate)", len(synced))
+            dev_synced = await self.tree.sync(guild=guild)
+            log.info("Also synced %d commands instantly to dev guild %s", len(dev_synced), DEV_GUILD_ID)
 
     async def _update_about_me(self):
         # Discord.py has no wrapper for this, PATCH applications/@me is a raw call so the "About Me" also plugs the site.
