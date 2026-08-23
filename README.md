@@ -1,11 +1,11 @@
 # 📈 Investo
 
-A Discord bot built using [Claude Code](https://claude.com/claude-code) to track stocks
-(Test Project). It lives in our server 24/7 and
-handles everything from live quotes and interactive charts to analyst ratings, news,
-watchlists, and price alerts, plus it posts automatically whenever something we're
-tracking makes a big move. Everything here also lives on a companion website at
-[investoweb.vercel.app](https://investoweb.vercel.app), same account, same data, either surface.
+A Discord bot for tracking stocks and crypto, built with [Claude Code](https://claude.com/claude-code).
+It runs 24/7 and handles everything from live quotes and interactive charts to analyst
+ratings, news, watchlists, and price alerts, plus it posts automatically whenever
+something you're tracking makes a big move. Everything here also lives on a companion
+website at [investoweb.vercel.app](https://investoweb.vercel.app), same account, same
+data, either surface, and the bot works in any server it's added to, not just one.
 
 ## Commands
 
@@ -31,6 +31,11 @@ tracking makes a big move. Everything here also lives on a companion website at
 | `/feedback <message> [category]` | Send a bug report, suggestion, or general feedback straight to the bot owner |
 | `/status` | Checks Discord latency, the database, Yahoo Finance, and today's Gemini usage, and shows what's actually responding right now |
 | `/help` | One clean panel explaining everything above |
+
+Don't know the exact ticker? Every command above that takes one autocompletes as you
+type, searching by company or asset name too, and labels each match by type (stock,
+ETF, crypto...) so a search like "BTC" can't get confused with a similarly-named ETF
+that isn't the coin you meant.
 
 ### Automatic updates
 
@@ -64,7 +69,7 @@ whatever the model remembers from training.
 
 TipRanks was the original plan for the analyst side of things, but they don't offer a
 public API individual developers can sign up for, so this combination of free sources
-ended up covering everything TipRanks would have.
+covers the same ground instead.
 
 ## Hosting
 
