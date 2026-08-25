@@ -1,6 +1,6 @@
 # 📈 Investo
 
-A Discord bot for tracking stocks and crypto, built with [Claude Code](https://claude.com/claude-code).
+A Discord bot for tracking stocks and crypto, with Canadian support.
 It runs 24/7 and handles everything from live quotes and interactive charts to analyst
 ratings, news, watchlists, and price alerts, plus it posts automatically whenever
 something you're tracking makes a big move. Everything here also lives on a companion
