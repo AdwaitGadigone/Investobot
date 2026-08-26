@@ -63,16 +63,17 @@ class InvestoBot(commands.Bot):
         # commands never synced anywhere except that one server, real-world proof: a bot list reviewer
         # testing from a fresh server found no working commands at all, not even /help.
         synced = await self.tree.sync()
-        log.info("Synced %d global commands (may take up to an hour to propagate to servers other than the dev guild)", len(synced))
+        log.info("Synced %d global commands (may take up to an hour to propagate to every server)", len(synced))
 
         if DEV_GUILD_ID:
-            # On top of the global sync above, also copy everything to this one server and sync it
-            # instantly, so changes show up immediately while developing instead of waiting out the
-            # global propagation delay every time.
+            # This bot only ever runs as one live deployment, there's no separate local instance that
+            # would benefit from an instant per-guild copy on top of the global sync above, and having
+            # one showed every command twice in this one server, once from each registration. Clearing
+            # any leftover guild-specific commands here undoes that, safe to leave in permanently,
+            # it's a no-op once there's nothing left to clear.
             guild = discord.Object(id=int(DEV_GUILD_ID))
-            self.tree.copy_global_to(guild=guild)
-            dev_synced = await self.tree.sync(guild=guild)
-            log.info("Also synced %d commands instantly to dev guild %s", len(dev_synced), DEV_GUILD_ID)
+            self.tree.clear_commands(guild=guild)
+            await self.tree.sync(guild=guild)
 
     async def _update_about_me(self):
         # Discord.py has no wrapper for this, PATCH applications/@me is a raw call so the "About Me" also plugs the site.
