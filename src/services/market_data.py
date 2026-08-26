@@ -31,6 +31,8 @@ _QUOTE_TIMEOUT_SECONDS = 8
 
 # Company names never change, so this never needs a TTL or eviction like the quote/history caches below.
 _name_cache: dict[str, str] = {}
+# Same lifecycle as _name_cache, piggybacks on the exact same t.info call below, no extra fetch needed.
+_quote_type_cache: dict[str, str | None] = {}
 
 
 def _fetch_quote_sync(ticker: str) -> dict:
@@ -54,17 +56,24 @@ def _fetch_quote_sync(ticker: str) -> dict:
     change_pct = (change / prev_close * 100) if prev_close else 0.0
 
     long_name = _name_cache.get(ticker.upper(), ticker.upper())
+    quote_type = _quote_type_cache.get(ticker.upper())
     if ticker.upper() not in _name_cache:
         try:
             # Names don't change, so this slow call only ever runs once per ticker for the process's lifetime.
-            long_name = t.info.get("longName") or t.info.get("shortName") or long_name
+            # quoteType (EQUITY, ETF, CRYPTOCURRENCY...) comes along for free in this same response, this is
+            # what lets /rating tell someone "PHO is an ETF" instead of implying the API key might be broken.
+            full_info = t.info
+            long_name = full_info.get("longName") or full_info.get("shortName") or long_name
+            quote_type = full_info.get("quoteType")
             _name_cache[ticker.upper()] = long_name
+            _quote_type_cache[ticker.upper()] = quote_type
         except Exception:
             pass
 
     return {
         "ticker": ticker.upper(),
         "name": long_name,
+        "quote_type": quote_type,
         "price": last_price,
         "prev_close": prev_close,
         "change": change,
