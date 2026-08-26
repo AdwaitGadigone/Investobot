@@ -8,6 +8,17 @@ from config import HEAVY_COOLDOWN_SECONDS
 from services import analyst_take, market_data
 from services.ticker_search import ticker_autocomplete
 
+# Analyst ratings and price targets are published for individual companies, not for a fund or an index,
+# so Finnhub genuinely has nothing to return for these, no matter how valid the ticker is otherwise.
+_NON_EQUITY_LABELS = {
+    "ETF": "an ETF",
+    "MUTUALFUND": "a mutual fund",
+    "CRYPTOCURRENCY": "a cryptocurrency",
+    "INDEX": "a market index",
+    "CURRENCY": "a currency pair",
+    "FUTURE": "a futures contract",
+}
+
 
 class Analyst(commands.Cog):
     # /rating, our replacement for TipRanks since they don't offer a public API individual developers can sign up for.
@@ -42,9 +53,16 @@ class Analyst(commands.Cog):
             return
 
         if not trends and not target:
-            await interaction.followup.send(
-                "No analyst data available (check the ticker, or FINNHUB_API_KEY isn't set)."
-            )
+            label = _NON_EQUITY_LABELS.get(quote.get("quote_type"))
+            if label:
+                await interaction.followup.send(
+                    f"**{ticker}** is {label}, not an individual company, so analyst ratings and "
+                    "price targets don't apply the way they do to a stock."
+                )
+            else:
+                await interaction.followup.send(
+                    "No analyst data available (check the ticker, or FINNHUB_API_KEY isn't set)."
+                )
             return
 
         embed = discord.Embed(title=f"Analyst Ratings for {ticker}", color=discord.Color.blurple())
