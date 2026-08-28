@@ -3,7 +3,7 @@ import time
 import discord
 from discord.ext import commands
 
-from services import chat_ai
+from services import chat_ai, gemini_limiter
 
 # Stops an accidental double @mention (or spam) from firing two Gemini calls back to back.
 _COOLDOWN_SECONDS = 8
@@ -48,7 +48,19 @@ class Chat(commands.Cog):
             reply = await chat_ai.generate_chat_reply(question, prior_reply)
 
         if not reply:
-            await message.reply("Something went wrong generating a response, try again in a bit.")
+            # The free tier's daily cap is genuinely tiny (shared across every server and every AI
+            # feature combined), "try again in a bit" is actively misleading when the real wait is
+            # until the quota resets tomorrow, not a few minutes.
+            minute_used, minute_limit, day_used, day_limit = await gemini_limiter.get_usage()
+            if day_used >= day_limit:
+                await message.reply(
+                    "Hit the free daily limit on AI replies for today, this resets tomorrow. "
+                    "Everything else still works fine."
+                )
+            elif minute_used >= minute_limit:
+                await message.reply("Getting a lot of AI questions at once, try again in a few seconds.")
+            else:
+                await message.reply("Something went wrong generating a response, try again in a bit.")
             return
 
         embed = discord.Embed(description=reply[:4000], color=discord.Color.blurple())
