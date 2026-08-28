@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import HEAVY_COOLDOWN_SECONDS, LIGHT_COOLDOWN_SECONDS
-from services import market_data
+from services import gemini_limiter, market_data
 from services.sentiment import generate_sentiment
 from services.ticker_search import ticker_autocomplete
 
@@ -123,7 +123,16 @@ class Insights(commands.Cog):
 
         read = await generate_sentiment(ticker, news)
         if not read:
-            await interaction.followup.send("Couldn't generate a sentiment read right now, try again in a bit.")
+            # The free tier's daily cap is genuinely tiny (shared across every server and every AI
+            # feature combined), "try again in a bit" is actively misleading when the real wait is
+            # until the quota resets tomorrow, not a few minutes.
+            _, _, day_used, day_limit = await gemini_limiter.get_usage()
+            if day_used >= day_limit:
+                await interaction.followup.send(
+                    "Hit the free daily limit on AI reads for today, this resets tomorrow."
+                )
+            else:
+                await interaction.followup.send("Couldn't generate a sentiment read right now, try again in a bit.")
             return
 
         embed = discord.Embed(title=f"📰 Sentiment: {ticker}", description=read, color=discord.Color.blurple())

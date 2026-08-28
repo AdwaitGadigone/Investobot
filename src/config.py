@@ -69,7 +69,11 @@ CHAT_MODEL = "gemini-flash-latest"
 # 429 from Google, not this limiter, confirmed live against the actual API before lowering it. Re-verify
 # at aistudio.google.com/rate-limit if this ever silently drifts again.
 GEMINI_RPM_LIMIT = 4
-GEMINI_RPD_LIMIT = 200
+# Same story as the RPM limit above, but for the daily cap: gemini-3.7-flash's free tier daily quota is
+# only 20 requests a day, total, shared across every server and every Gemini feature combined, not the
+# 200 this had been left at. Confirmed live: a real request returned a 429 naming this exact quota
+# ("GenerateRequestsPerDayPerProjectPerModel-FreeTier", value 20) well before 200 calls had happened.
+GEMINI_RPD_LIMIT = 15
 
 # Per-user slash command cooldowns, seconds between uses of the same command. Light is for simple DB reads/writes.
 LIGHT_COOLDOWN_SECONDS = 3
