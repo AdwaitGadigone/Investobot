@@ -10,7 +10,11 @@ from services import gemini_limiter, gemini_retry
 log = logging.getLogger("investo.sentiment")
 
 # Stays None without a key, so /sentiment just skips this field entirely.
-_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+_client = (
+    genai.Client(api_key=GEMINI_API_KEY, http_options=gemini_retry.CLIENT_HTTP_OPTIONS)
+    if GEMINI_API_KEY
+    else None
+)
 
 SYSTEM_PROMPT = (
     "You read recent news headlines for a stock and summarize the current sentiment in 2-3 "

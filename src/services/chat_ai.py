@@ -11,7 +11,11 @@ from services import gemini_limiter, gemini_retry, market_data
 log = logging.getLogger("investo.chat_ai")
 
 # Stays None without a key, so the @mention feature just goes quiet instead of crashing.
-_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+_client = (
+    genai.Client(api_key=GEMINI_API_KEY, http_options=gemini_retry.CLIENT_HTTP_OPTIONS)
+    if GEMINI_API_KEY
+    else None
+)
 
 # Casual and conversational on purpose, a knowledgeable friend rather than a compliance-heavy product.
 SYSTEM_PROMPT = (
