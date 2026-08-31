@@ -31,91 +31,67 @@ def _ticker_width(tickers) -> int:
     return min(max((len(t) for t in tickers), default=6), _MAX_TICKER_WIDTH)
 
 
+def _dollar_str(amount: float) -> str:
+    # "+$1,234.56" / "-$1,234.56", used anywhere a raw dollar change or P/L amount is shown, not just a
+    # plain price, the sign belongs before the $ to read naturally instead of "$+1,234.56".
+    return f"{'+' if amount >= 0 else '-'}${abs(amount):,.2f}"
+
+
 def _digest_line(quote: dict, ticker_width: int = 6) -> str:
     # Same ANSI color trick as cogs/stocks.py's quote embed, one line per ticker in the digest DM.
+    # Shows today's move as both percent and a real dollar amount, not just percent alone.
     esc = chr(27)
     is_up = quote["change_pct"] >= 0
     color_code = "32" if is_up else "31"
     arrow = "▲" if is_up else "▼"
     reset = f"{esc}[0m"
+    pct_str = f"{quote['change_pct']:+.2f}%"
     return (
         f"{esc}[1;{color_code}m{quote['ticker']:<{ticker_width}} ${quote['price']:>10,.2f}   "
-        f"{arrow} {quote['change_pct']:+.2f}%{reset}"
+        f"{arrow}{pct_str:>7}   {_dollar_str(quote['change']):>10}{reset}"
     )
 
 
 def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote: dict, ticker_width: int = 6) -> str:
-    # Value + today's move + all-time P/L on one line, same ANSI-color pattern as the watchlist line above.
-    # Shorter than it used to be on purpose: Discord's ansi code block isn't perfectly monospace on every
-    # client, so a longer line drifts further out of alignment by the time it reaches the right edge, this
-    # is the same tight shape watchlist's line already uses, just with a second P/L column tacked on.
+    # Value, today's move, and all-time P/L (as both percent and a real dollar amount) on one line,
+    # same ANSI-color pattern as the watchlist line above.
     esc = chr(27)
     reset = f"{esc}[0m"
     price = quote["price"]
     value = shares * price
     cost = shares * cost_basis
-    pl_pct = ((value - cost) / cost * 100) if cost else 0.0
+    pl_dollar = value - cost
+    pl_pct = (pl_dollar / cost * 100) if cost else 0.0
     color_code = "32" if pl_pct >= 0 else "31"
     today_arrow = "▲" if quote["change_pct"] >= 0 else "▼"
     pl_arrow = "▲" if pl_pct >= 0 else "▼"
-    # Both percentages are right-aligned to a fixed width, not just however many characters the number
-    # happens to take, a single double-digit swing (a real P/L easily hits +100% or more over time) would
-    # otherwise shift every column after it out of line for that one row, throwing off the whole list.
-    # Same 2-decimal precision as every other percent in this embed, P/L used to be 1-decimal, matching
-    # everything else is what "formatting" actually means here, not just picking a shorter number.
+    # Every number is right-aligned to a fixed width, not just however many characters it happens to
+    # take, a single big swing (a real P/L easily hits +100% or four figures over time) would otherwise
+    # shift every column after it out of line for that one row, throwing off the whole list.
     today_str = f"{quote['change_pct']:+.2f}%"
-    pl_str = f"{pl_pct:+.2f}%"
+    pl_pct_str = f"{pl_pct:+.2f}%"
     return (
-        f"{esc}[1;{color_code}m{ticker:<{ticker_width}} ${value:>9,.2f}  "
-        f"{today_arrow}{today_str:>7}  {pl_arrow}{pl_str:>8}{reset}"
+        f"{esc}[1;{color_code}m{ticker:<{ticker_width}} ${value:>9,.2f}   "
+        f"{today_arrow}{today_str:>7}   {pl_arrow}{pl_pct_str:>8}   {_dollar_str(pl_dollar):>11}{reset}"
     )
 
 
-_MAX_FIELD_CHUNKS = 4
-
-
-def _chunk_field(lines: list[str], prefix: str = "") -> list[str]:
-    # Embed field values cap at 1024 chars each, but a message can hold up to 25 fields, splitting a big
-    # watchlist/portfolio across a few fields instead of cutting it off after one lets someone actually
-    # see their whole list instead of a "+N more, see the website" note for anything past the first ~16 lines.
+def _build_ansi_block(lines: list[str], prefix: str = "", limit: int = 4096) -> str:
+    # Embed descriptions cap at 4096 chars, 4x an embed field's 1024, comfortably fitting even a large
+    # watchlist or portfolio (rarely more than 100 lines of about 40 characters each) without ever
+    # needing a second "(cont.)" section. Still has a last-resort truncation for a genuinely enormous
+    # list, budgeted correctly against the real limit on every shrink, not appended after already being
+    # at it, the exact off-by-limit mistake made (and caught) once already earlier in this same file.
     if not lines:
-        return ["```ansi\n" + prefix + "\n```"]
+        return "```ansi\n" + prefix + "\n```"
 
-    chunks: list[str] = []
-    line_counts: list[int] = []
-    current: list[str] = []
-    current_prefix = prefix
-    for line in lines:
-        candidate = "```ansi\n" + current_prefix + "\n".join(current + [line]) + "\n```"
-        if len(candidate) > 1024 and current:
-            chunks.append("```ansi\n" + current_prefix + "\n".join(current) + "\n```")
-            line_counts.append(len(current))
-            current = [line]
-            current_prefix = ""  # The summary prefix only belongs above the very first chunk.
-        else:
-            current.append(line)
-    if current:
-        chunks.append("```ansi\n" + current_prefix + "\n".join(current) + "\n```")
-        line_counts.append(len(current))
-
-    if len(chunks) <= _MAX_FIELD_CHUNKS:
-        return chunks
-
-    # A genuinely enormous list (hundreds of tickers) could still outrun a reasonable number of fields,
-    # this is the last-resort fallback for that edge case, not the normal path anymore. Whatever didn't
-    # fit in the first few chunks gets squeezed into one final capped chunk, with the "+N more" note
-    # itself counted against the 1024 budget on every shrink, not appended after already being at the
-    # limit, the exact off-by-limit mistake made (and caught) once already earlier in this same file.
-    kept = chunks[: _MAX_FIELD_CHUNKS - 1]
-    consumed = sum(line_counts[: _MAX_FIELD_CHUNKS - 1])
-    shown = lines[consumed:]
+    shown = list(lines)
     hidden = 0
     while True:
-        body = "```ansi\n" + "\n".join(shown) + "\n```"
+        body = "```ansi\n" + prefix + "\n".join(shown) + "\n```"
         note = f"\n*+{hidden} more, see the full list on the website.*" if hidden else ""
-        if len(body + note) <= 1024 or not shown:
-            kept.append(body + note)
-            return kept
+        if len(body + note) <= limit or not shown:
+            return body + note
         shown = shown[:-1]
         hidden += 1
 
@@ -141,8 +117,11 @@ def _portfolio_digest_summary(total_value: float, total_today: float, total_pl: 
 
 async def _build_digest_embed(
     guild_id: int, user_id: int, content: str, quote_cache: dict[str, dict] | None = None
-) -> discord.Embed:
+) -> tuple[list[discord.Embed], bool]:
     # Shared by the daily auto-send and the dropdown's live edit, so both always render identically.
+    # Returns a list of embeds (a message can hold up to 10) instead of one embed with fields, so
+    # watchlist and portfolio each get the full 4096-character description budget instead of splitting
+    # a 1024-character field into a "(cont.)" second one for anything longer than about 16 lines.
     if quote_cache is None:
         quote_cache = {}
 
@@ -157,7 +136,9 @@ async def _build_digest_embed(
             else:
                 quote_cache[ticker] = result
 
-    embed = discord.Embed(title="🌤️ Your Morning Digest", color=discord.Color.blurple())
+    header = discord.Embed(title="🌤️ Your Morning Digest", color=discord.Color.blurple())
+    embeds = [header]
+    has_content = False
 
     if content in ("watchlist", "both"):
         tickers = await db.get_watchlist(guild_id, user_id)
@@ -167,11 +148,15 @@ async def _build_digest_embed(
             # Biggest gainer first, biggest loser last, so the movers that actually matter aren't buried
             # alphabetically, plain ticker order told you nothing useful at a glance.
             priced_tickers.sort(key=lambda t: quote_cache[t]["change_pct"], reverse=True)
-            width = _ticker_width(priced_tickers)
-            lines = [_digest_line(quote_cache[t], width) for t in priced_tickers]
-            for i, chunk in enumerate(_chunk_field(lines)):
-                name = "👀 Watchlist" if i == 0 else "👀 Watchlist (cont.)"
-                embed.add_field(name=name, value=chunk, inline=False)
+            if priced_tickers:
+                has_content = True
+                width = _ticker_width(priced_tickers)
+                lines = [_digest_line(quote_cache[t], width) for t in priced_tickers]
+                embeds.append(
+                    discord.Embed(
+                        title="👀 Watchlist", description=_build_ansi_block(lines), color=discord.Color.blurple()
+                    )
+                )
 
     if content in ("portfolio", "both"):
         positions = await db.get_portfolio(guild_id, user_id)
@@ -188,6 +173,7 @@ async def _build_digest_embed(
 
             priced.sort(key=_pl_pct, reverse=True)
             if priced:
+                has_content = True
                 total_value = sum(p["shares"] * quote_cache[p["ticker"]]["price"] for p in priced)
                 total_cost = sum(p["shares"] * p["cost_basis"] for p in priced)
                 total_today = sum(p["shares"] * quote_cache[p["ticker"]]["change"] for p in priced)
@@ -199,20 +185,18 @@ async def _build_digest_embed(
                 ]
                 # Each row dropped its "today"/"P/L" text labels to stay short (a long ANSI line drifts
                 # further out of alignment on Discord clients that don't render the code block perfectly
-                # monospace), this one-time header is what still tells the two arrow+percent columns apart.
-                header = " " * (width + 13) + f"{'today':>8}  {'p/l':>9}\n"
-                # The summary's own ANSI codes need to be inside the same ```ansi fence as the lines below it,
-                # a fence opened AFTER it left those escape codes rendering as literal garbled characters.
-                for i, chunk in enumerate(_chunk_field(lines, prefix=summary + "\n" + header)):
-                    name = "💼 Portfolio" if i == 0 else "💼 Portfolio (cont.)"
-                    embed.add_field(name=name, value=chunk, inline=False)
+                # monospace), this one-time header is what still tells the columns apart.
+                col_header = " " * (width + 14) + f"{'today':>8}   {'p/l %':>9}   {'p/l $':>11}\n"
+                # The summary's own ANSI codes need to be inside the same ```ansi fence as the lines below
+                # it, a fence opened AFTER it left those escape codes rendering as literal garbled text.
+                description = _build_ansi_block(lines, prefix=summary + "\n" + col_header)
+                embeds.append(discord.Embed(title="💼 Portfolio", description=description, color=discord.Color.blurple()))
 
-    if not embed.fields:
-        # embed.fields stays empty either way, so callers can still tell "nothing to show" apart from real content.
-        embed.description = "Nothing to show yet. Add tickers with `/watchlist` or holdings with `/portfolio`."
+    if not has_content:
+        header.description = "Nothing to show yet. Add tickers with `/watchlist` or holdings with `/portfolio`."
 
-    embed.set_footer(text="Switch what this shows with the dropdown below, or turn it off with /digest")
-    return embed
+    embeds[-1].set_footer(text="Switch what this shows with the dropdown below, or turn it off with /digest")
+    return embeds, has_content
 
 
 class DigestContentSelect(discord.ui.Select):
@@ -233,11 +217,11 @@ class DigestContentSelect(discord.ui.Select):
         await interaction.response.defer()
         # Persisted, so tomorrow's auto-send opens on whatever the user last picked here too.
         await db.set_digest_content(self.guild_id, self.user_id, content)
-        embed = await _build_digest_embed(self.guild_id, self.user_id, content)
+        embeds, _ = await _build_digest_embed(self.guild_id, self.user_id, content)
         try:
-            await interaction.edit_original_response(embed=embed, view=DigestView(self.guild_id, self.user_id, content))
+            await interaction.edit_original_response(embeds=embeds, view=DigestView(self.guild_id, self.user_id, content))
         except discord.HTTPException:
-            # _chunk_field above should already prevent this, but a stuck "thinking..." with zero
+            # _build_ansi_block above should already prevent this, but a stuck "thinking..." with zero
             # feedback is worse than an honest error, this is a safety net not the primary fix.
             log.exception("Failed to edit digest message for user %s", self.user_id)
             await interaction.followup.send("Couldn't update the digest, try `/digest` again in a bit.", ephemeral=True)
@@ -272,7 +256,9 @@ async def _server_digest_rows(tickers: list[str], period: str) -> list[dict]:
             log.exception("Failed to fetch quote for server digest ticker %s", ticker, exc_info=quote)
             continue
         if period == "day":
-            rows.append({"ticker": ticker, "price": quote["price"], "change_pct": quote["change_pct"]})
+            rows.append(
+                {"ticker": ticker, "price": quote["price"], "change_pct": quote["change_pct"], "change": quote["change"]}
+            )
         else:
             day_tickers.append((ticker, quote))
 
@@ -283,16 +269,22 @@ async def _server_digest_rows(tickers: list[str], period: str) -> list[dict]:
         for (ticker, quote), change in zip(day_tickers, changes):
             if isinstance(change, Exception) or not change:
                 continue
-            rows.append({"ticker": ticker, "price": quote["price"], "change_pct": change["pct"]})
+            rows.append(
+                {"ticker": ticker, "price": quote["price"], "change_pct": change["pct"], "change": change["amount"]}
+            )
 
     return rows
 
 
 async def _build_server_digest_embed(
     tickers: list[str], period: str, include_movers: bool, big_movers: list[dict]
-) -> discord.Embed:
+) -> list[discord.Embed]:
+    # A list of embeds instead of one embed with fields, same reasoning as the personal digest above,
+    # the Tracked list gets the full 4096-character description budget instead of splitting into a
+    # "(cont.)" field past about 16 lines.
     label = SERVER_DIGEST_PERIOD_LABELS.get(period, "Today")
-    embed = discord.Embed(title=f"📊 Server Digest: {label}", color=discord.Color.blurple())
+    header = discord.Embed(title=f"📊 Server Digest: {label}", color=discord.Color.blurple())
+    embeds = [header]
 
     if tickers:
         rows = await _server_digest_rows(tickers, period)
@@ -302,13 +294,13 @@ async def _build_server_digest_embed(
             rows.sort(key=lambda r: r["change_pct"], reverse=True)
             width = _ticker_width(r["ticker"] for r in rows)
             lines = [_digest_line(r, width) for r in rows]
-            for i, chunk in enumerate(_chunk_field(lines)):
-                name = "📋 Tracked" if i == 0 else "📋 Tracked (cont.)"
-                embed.add_field(name=name, value=chunk, inline=False)
+            embeds.append(
+                discord.Embed(title="📋 Tracked", description=_build_ansi_block(lines), color=discord.Color.blurple())
+            )
         else:
-            embed.description = "No data available for the tracked list right now."
+            header.description = "No data available for the tracked list right now."
     else:
-        embed.description = "Nobody's tracking any tickers yet, add some with `/track`."
+        header.description = "Nobody's tracking any tickers yet, add some with `/track`."
 
     if include_movers:
         # Filtered per-server so a ticker already shown in the tracked list above isn't repeated here too.
@@ -320,14 +312,14 @@ async def _build_server_digest_embed(
         )[:8]
         if notable:
             width = _ticker_width(m["ticker"] for m in notable)
-            embed.add_field(
+            embeds[-1].add_field(
                 name="🔥 Notable movers",
                 value="```ansi\n" + "\n".join(_digest_line(m, width) for m in notable) + "\n```",
                 inline=False,
             )
 
-    embed.set_footer(text="Switch the time window below, admins can reconfigure with /serverdigest")
-    return embed
+    embeds[-1].set_footer(text="Switch the time window below, admins can reconfigure with /serverdigest")
+    return embeds
 
 
 class ServerDigestPeriodSelect(discord.ui.Select):
@@ -347,10 +339,10 @@ class ServerDigestPeriodSelect(discord.ui.Select):
         await interaction.response.defer()
         # Deliberately not saved anywhere, this only changes how THIS posted message looks, not tomorrow's default.
         period = self.values[0]
-        embed = await _build_server_digest_embed(self.tickers, period, self.include_movers, self.big_movers)
+        embeds = await _build_server_digest_embed(self.tickers, period, self.include_movers, self.big_movers)
         view = ServerDigestView(self.tickers, period, self.include_movers, self.big_movers)
         try:
-            await interaction.edit_original_response(embed=embed, view=view)
+            await interaction.edit_original_response(embeds=embeds, view=view)
         except discord.HTTPException:
             log.exception("Failed to edit server digest message for guild %s", interaction.guild_id)
             await interaction.followup.send("Couldn't update the digest, try `/serverdigest` again in a bit.", ephemeral=True)
@@ -550,14 +542,14 @@ class Scheduler(commands.Cog):
         quote_cache: dict[str, dict] = {}
 
         for guild_id, user_id, content in subscribers:
-            embed = await _build_digest_embed(guild_id, user_id, content, quote_cache)
-            if not embed.fields:
+            embeds, has_content = await _build_digest_embed(guild_id, user_id, content, quote_cache)
+            if not has_content:
                 # Nothing to summarize, skip the DM entirely instead of sending an empty one.
                 continue
 
             try:
                 user = await self.bot.fetch_user(user_id)
-                await user.send(embed=embed, view=DigestView(guild_id, user_id, content))
+                await user.send(embeds=embeds, view=DigestView(guild_id, user_id, content))
             except discord.HTTPException:
                 log.warning("Could not DM digest to user %s", user_id)
 
@@ -585,10 +577,10 @@ class Scheduler(commands.Cog):
                     continue
 
             tickers = await db.get_tracked(cfg["guild_id"])
-            embed = await _build_server_digest_embed(tickers, cfg["period"], cfg["include_movers"], big_movers)
+            embeds = await _build_server_digest_embed(tickers, cfg["period"], cfg["include_movers"], big_movers)
             view = ServerDigestView(tickers, cfg["period"], cfg["include_movers"], big_movers)
             try:
-                await channel.send(embed=embed, view=view)
+                await channel.send(embeds=embeds, view=view)
             except discord.HTTPException:
                 log.warning("Could not post server digest to channel %s", cfg["channel_id"])
 

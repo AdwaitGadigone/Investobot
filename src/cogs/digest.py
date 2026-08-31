@@ -15,9 +15,9 @@ _DM_TRIGGERS = {"digest", "!digest"}
 
 async def _send_one_digest(user: discord.User, guild_id: int, content: str) -> bool:
     # Shared by /digest_now and the DM trigger below, so both stay identical instead of drifting apart.
-    embed = await _build_digest_embed(guild_id, user.id, content)
+    embeds, _ = await _build_digest_embed(guild_id, user.id, content)
     try:
-        await user.send(embed=embed, view=DigestView(guild_id, user.id, content))
+        await user.send(embeds=embeds, view=DigestView(guild_id, user.id, content))
         return True
     except discord.Forbidden:
         return False
