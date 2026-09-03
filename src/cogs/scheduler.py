@@ -43,7 +43,12 @@ def _digest_line(quote: dict, ticker_width: int = 6) -> str:
     esc = chr(27)
     is_up = quote["change_pct"] >= 0
     color_code = "32" if is_up else "31"
-    arrow = "▲" if is_up else "▼"
+    # Plain ASCII, not the ▲/▼ triangle glyphs, those aren't part of every font's actual monospace
+    # character set, Discord's ansi code block can render them at a slightly different width than a
+    # real character on some platforms, throwing every column after it out of line for that one row
+    # even though the underlying text lines up perfectly (verified: every line here comes out to the
+    # exact same length and column positions before this swap).
+    arrow = "^" if is_up else "v"
     reset = f"{esc}[0m"
     pct_str = f"{quote['change_pct']:+.2f}%"
     return (
@@ -63,8 +68,10 @@ def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote:
     pl_dollar = value - cost
     pl_pct = (pl_dollar / cost * 100) if cost else 0.0
     color_code = "32" if pl_pct >= 0 else "31"
-    today_arrow = "▲" if quote["change_pct"] >= 0 else "▼"
-    pl_arrow = "▲" if pl_pct >= 0 else "▼"
+    # Same plain-ASCII swap as the watchlist line above, the triangle glyphs risk a per-platform width
+    # inconsistency in Discord's ansi code block that a real character never has.
+    today_arrow = "^" if quote["change_pct"] >= 0 else "v"
+    pl_arrow = "^" if pl_pct >= 0 else "v"
     # Every number is right-aligned to a fixed width, not just however many characters it happens to
     # take, a single big swing (a real P/L easily hits +100% or four figures over time) would otherwise
     # shift every column after it out of line for that one row, throwing off the whole list.
