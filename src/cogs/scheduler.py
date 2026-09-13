@@ -37,9 +37,21 @@ def _dollar_str(amount: float) -> str:
     return f"{'+' if amount >= 0 else '-'}${abs(amount):,.2f}"
 
 
-def _digest_line(quote: dict, ticker_width: int = 6) -> str:
+def _digest_widths(quotes, ticker_width: int) -> tuple[int, int, int, int]:
+    # Every numeric column sized to the actual numbers in THIS list, not a fixed guess, a watchlist of
+    # small, cheap movers doesn't need room reserved for a four-figure price swing that never shows up
+    # in it, that reserved space was just dead whitespace stretching the line out, fine on a wide desktop
+    # window but genuinely ugly (and sometimes forces horizontal scrolling) on a narrow phone screen.
+    price_width = max((len(f"{q['price']:,.2f}") for q in quotes), default=6)
+    pct_width = max((len(f"{q['change_pct']:+.2f}%") for q in quotes), default=6)
+    dollar_width = max((len(_dollar_str(q["change"])) for q in quotes), default=6)
+    return ticker_width, price_width, pct_width, dollar_width
+
+
+def _digest_line(quote: dict, widths: tuple[int, int, int, int]) -> str:
     # Same ANSI color trick as cogs/stocks.py's quote embed, one line per ticker in the digest DM.
     # Shows today's move as both percent and a real dollar amount, not just percent alone.
+    ticker_width, price_width, pct_width, dollar_width = widths
     esc = chr(27)
     is_up = quote["change_pct"] >= 0
     color_code = "32" if is_up else "31"
@@ -50,36 +62,57 @@ def _digest_line(quote: dict, ticker_width: int = 6) -> str:
     # exact same length and column positions before this swap).
     arrow = "^" if is_up else "v"
     reset = f"{esc}[0m"
+    price_str = f"{quote['price']:,.2f}"
     pct_str = f"{quote['change_pct']:+.2f}%"
     return (
-        f"{esc}[1;{color_code}m{quote['ticker']:<{ticker_width}} ${quote['price']:>10,.2f}   "
-        f"{arrow}{pct_str:>7}   {_dollar_str(quote['change']):>10}{reset}"
+        f"{esc}[1;{color_code}m{quote['ticker']:<{ticker_width}} ${price_str:>{price_width}}  "
+        f"{arrow}{pct_str:>{pct_width}}  {_dollar_str(quote['change']):>{dollar_width}}{reset}"
     )
 
 
-def _portfolio_digest_line(ticker: str, shares: float, cost_basis: float, quote: dict, ticker_width: int = 6) -> str:
-    # Value, today's move, and all-time P/L (as both percent and a real dollar amount) on one line,
-    # same ANSI-color pattern as the watchlist line above.
-    esc = chr(27)
-    reset = f"{esc}[0m"
+def _portfolio_row(p: dict, quote: dict) -> dict:
+    # Precomputes every displayed value once, shared by the width pass below and the line-building pass,
+    # so the two can never disagree on what a position's numbers actually are.
     price = quote["price"]
-    value = shares * price
-    cost = shares * cost_basis
+    value = p["shares"] * price
+    cost = p["shares"] * p["cost_basis"]
     pl_dollar = value - cost
     pl_pct = (pl_dollar / cost * 100) if cost else 0.0
-    color_code = "32" if pl_pct >= 0 else "31"
+    return {
+        "ticker": p["ticker"],
+        "value_str": f"{value:,.2f}",
+        "today_pct": quote["change_pct"],
+        "today_str": f"{quote['change_pct']:+.2f}%",
+        "pl_pct": pl_pct,
+        "pl_pct_str": f"{pl_pct:+.2f}%",
+        "pl_dollar_str": _dollar_str(pl_dollar),
+    }
+
+
+def _portfolio_digest_widths(rows: list[dict], ticker_width: int) -> tuple[int, int, int, int, int]:
+    # Same reasoning as _digest_widths above, sized to this specific portfolio's actual numbers.
+    value_width = max((len(r["value_str"]) for r in rows), default=6)
+    pct_width = max((len(r["today_str"]) for r in rows), default=6)
+    pl_pct_width = max((len(r["pl_pct_str"]) for r in rows), default=6)
+    pl_dollar_width = max((len(r["pl_dollar_str"]) for r in rows), default=6)
+    return ticker_width, value_width, pct_width, pl_pct_width, pl_dollar_width
+
+
+def _portfolio_digest_line(row: dict, widths: tuple[int, int, int, int, int]) -> str:
+    # Value, today's move, and all-time P/L (as both percent and a real dollar amount) on one line,
+    # same ANSI-color pattern as the watchlist line above.
+    ticker_width, value_width, pct_width, pl_pct_width, pl_dollar_width = widths
+    esc = chr(27)
+    reset = f"{esc}[0m"
+    color_code = "32" if row["pl_pct"] >= 0 else "31"
     # Same plain-ASCII swap as the watchlist line above, the triangle glyphs risk a per-platform width
     # inconsistency in Discord's ansi code block that a real character never has.
-    today_arrow = "^" if quote["change_pct"] >= 0 else "v"
-    pl_arrow = "^" if pl_pct >= 0 else "v"
-    # Every number is right-aligned to a fixed width, not just however many characters it happens to
-    # take, a single big swing (a real P/L easily hits +100% or four figures over time) would otherwise
-    # shift every column after it out of line for that one row, throwing off the whole list.
-    today_str = f"{quote['change_pct']:+.2f}%"
-    pl_pct_str = f"{pl_pct:+.2f}%"
+    today_arrow = "^" if row["today_pct"] >= 0 else "v"
+    pl_arrow = "^" if row["pl_pct"] >= 0 else "v"
     return (
-        f"{esc}[1;{color_code}m{ticker:<{ticker_width}} ${value:>9,.2f}   "
-        f"{today_arrow}{today_str:>7}   {pl_arrow}{pl_pct_str:>8}   {_dollar_str(pl_dollar):>11}{reset}"
+        f"{esc}[1;{color_code}m{row['ticker']:<{ticker_width}} ${row['value_str']:>{value_width}}  "
+        f"{today_arrow}{row['today_str']:>{pct_width}}  {pl_arrow}{row['pl_pct_str']:>{pl_pct_width}}  "
+        f"{row['pl_dollar_str']:>{pl_dollar_width}}{reset}"
     )
 
 
@@ -157,8 +190,9 @@ async def _build_digest_embed(
             priced_tickers.sort(key=lambda t: quote_cache[t]["change_pct"], reverse=True)
             if priced_tickers:
                 has_content = True
-                width = _ticker_width(priced_tickers)
-                lines = [_digest_line(quote_cache[t], width) for t in priced_tickers]
+                quotes = [quote_cache[t] for t in priced_tickers]
+                widths = _digest_widths(quotes, _ticker_width(priced_tickers))
+                lines = [_digest_line(q, widths) for q in quotes]
                 embeds.append(
                     discord.Embed(
                         title="👀 Watchlist", description=_build_ansi_block(lines), color=discord.Color.blurple()
@@ -185,15 +219,20 @@ async def _build_digest_embed(
                 total_cost = sum(p["shares"] * p["cost_basis"] for p in priced)
                 total_today = sum(p["shares"] * quote_cache[p["ticker"]]["change"] for p in priced)
                 summary = _portfolio_digest_summary(total_value, total_today, total_value - total_cost, total_cost)
-                width = _ticker_width(p["ticker"] for p in priced)
-                lines = [
-                    _portfolio_digest_line(p["ticker"], p["shares"], p["cost_basis"], quote_cache[p["ticker"]], width)
-                    for p in priced
-                ]
+                rows = [_portfolio_row(p, quote_cache[p["ticker"]]) for p in priced]
+                ticker_width, value_width, pct_width, pl_pct_width, pl_dollar_width = _portfolio_digest_widths(
+                    rows, _ticker_width(p["ticker"] for p in priced)
+                )
+                widths = (ticker_width, value_width, pct_width, pl_pct_width, pl_dollar_width)
+                lines = [_portfolio_digest_line(r, widths) for r in rows]
                 # Each row dropped its "today"/"P/L" text labels to stay short (a long ANSI line drifts
                 # further out of alignment on Discord clients that don't render the code block perfectly
-                # monospace), this one-time header is what still tells the columns apart.
-                col_header = " " * (width + 14) + f"{'today':>8}   {'p/l %':>9}   {'p/l $':>11}\n"
+                # monospace), this one-time header is what still tells the columns apart. Padding matches
+                # the same dynamic widths the rows themselves use, not a fixed guess.
+                col_header = (
+                    " " * (ticker_width + value_width + 4)
+                    + f"{'today':>{1 + pct_width}}  {'p/l %':>{1 + pl_pct_width}}  {'p/l $':>{pl_dollar_width}}\n"
+                )
                 # The summary's own ANSI codes need to be inside the same ```ansi fence as the lines below
                 # it, a fence opened AFTER it left those escape codes rendering as literal garbled text.
                 description = _build_ansi_block(lines, prefix=summary + "\n" + col_header)
@@ -299,8 +338,8 @@ async def _build_server_digest_embed(
             # Same as the personal digest's watchlist: biggest mover first, not whatever order /track
             # added them in, this list was never actually sorted despite looking like it should be.
             rows.sort(key=lambda r: r["change_pct"], reverse=True)
-            width = _ticker_width(r["ticker"] for r in rows)
-            lines = [_digest_line(r, width) for r in rows]
+            widths = _digest_widths(rows, _ticker_width(r["ticker"] for r in rows))
+            lines = [_digest_line(r, widths) for r in rows]
             embeds.append(
                 discord.Embed(title="📋 Tracked", description=_build_ansi_block(lines), color=discord.Color.blurple())
             )
@@ -318,10 +357,10 @@ async def _build_server_digest_embed(
             reverse=True,
         )[:8]
         if notable:
-            width = _ticker_width(m["ticker"] for m in notable)
+            widths = _digest_widths(notable, _ticker_width(m["ticker"] for m in notable))
             embeds[-1].add_field(
                 name="🔥 Notable movers",
-                value="```ansi\n" + "\n".join(_digest_line(m, width) for m in notable) + "\n```",
+                value="```ansi\n" + "\n".join(_digest_line(m, widths) for m in notable) + "\n```",
                 inline=False,
             )
 
