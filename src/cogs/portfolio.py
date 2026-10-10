@@ -17,6 +17,45 @@ async def _my_portfolio_tickers(guild_id: int, user_id: int) -> list[str]:
 _owned_ticker_autocomplete = make_owned_autocomplete(_my_portfolio_tickers)
 
 
+async def _buy_position(guild_id: int, user_id: int, ticker: str, shares: float, price: float | None) -> tuple[bool, str]:
+    # Shared by /portfolio buy and the digest's quick-buy button, so both stay identical. price=None means
+    # "use today's live price", a real user's own feedback suggestion, checking an exact number first was
+    # friction for the common case of just logging a trade you made right now.
+    ticker = ticker.upper().strip()
+    if shares <= 0:
+        return False, "Shares needs to be a positive number."
+    if price is not None and price <= 0:
+        return False, "Price needs to be a positive number, or leave it blank to use the current price."
+
+    try:
+        quote = await market_data.get_quote(ticker)
+    except market_data.TickerNotFoundError:
+        return False, f"`{ticker}` doesn't look like a valid ticker."
+    except market_data.MarketDataTimeoutError:
+        return False, "Yahoo Finance is being slow right now, try again in a bit."
+
+    actual_price = price if price is not None else quote["price"]
+    await db.buy_position(guild_id, user_id, ticker, shares, actual_price)
+    return True, (
+        f"Logged **{shares:g}** shares of **{ticker}** at **${actual_price:,.2f}**. "
+        f"Check `/portfolio view` for your updated position."
+    )
+
+
+async def _sell_position(guild_id: int, user_id: int, ticker: str, shares: float) -> tuple[bool, str]:
+    # Shared by /portfolio sell and the digest's quick-sell button.
+    ticker = ticker.upper().strip()
+    if shares <= 0:
+        return False, "Shares needs to be a positive number."
+
+    result = await db.sell_position(guild_id, user_id, ticker, shares)
+    if result == "not_found":
+        return False, f"You don't have a position in **{ticker}**."
+    if result == "too_many":
+        return False, f"You don't own that many shares of **{ticker}**."
+    return True, f"Logged selling **{shares:g}** shares of **{ticker}**."
+
+
 def _pl_line(ticker: str, shares: float, cost_basis: float, price: float) -> str:
     # Same ANSI color trick used elsewhere in the bot, one line per position.
     esc = chr(27)
@@ -45,47 +84,21 @@ class Portfolio(commands.Cog):
     @app_commands.describe(
         ticker="Stock ticker symbol, e.g. AAPL",
         shares="Number of shares bought",
-        price="Price per share you paid",
+        price="Price per share you paid, leave blank to use today's live price",
     )
     @app_commands.autocomplete(ticker=ticker_autocomplete)
-    async def portfolio_buy(self, interaction: discord.Interaction, ticker: str, shares: float, price: float):
-        ticker = ticker.upper().strip()
-        if shares <= 0 or price <= 0:
-            await interaction.response.send_message("Shares and price both need to be positive numbers.")
-            return
-
-        try:
-            await market_data.get_quote(ticker)
-        except market_data.TickerNotFoundError:
-            await interaction.response.send_message(f"`{ticker}` doesn't look like a valid ticker.")
-            return
-        except market_data.MarketDataTimeoutError:
-            await interaction.response.send_message("Yahoo Finance is being slow right now, try again in a bit.")
-            return
-
-        await db.buy_position(interaction.guild_id, interaction.user.id, ticker, shares, price)
-        await interaction.response.send_message(
-            f"Logged **{shares:g}** shares of **{ticker}** at **${price:,.2f}**. "
-            f"Check `/portfolio view` for your updated position."
-        )
+    async def portfolio_buy(self, interaction: discord.Interaction, ticker: str, shares: float, price: float = None):
+        await interaction.response.defer()
+        ok, message = await _buy_position(interaction.guild_id, interaction.user.id, ticker, shares, price)
+        await interaction.followup.send(message)
 
     @portfolio_group.command(name="sell", description="Log a sell, reduces or closes your position")
     @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
     @app_commands.describe(ticker="Stock ticker symbol", shares="Number of shares sold")
     @app_commands.autocomplete(ticker=_owned_ticker_autocomplete)
     async def portfolio_sell(self, interaction: discord.Interaction, ticker: str, shares: float):
-        ticker = ticker.upper().strip()
-        if shares <= 0:
-            await interaction.response.send_message("Shares needs to be a positive number.")
-            return
-
-        result = await db.sell_position(interaction.guild_id, interaction.user.id, ticker, shares)
-        if result == "not_found":
-            await interaction.response.send_message(f"You don't have a position in **{ticker}**.")
-        elif result == "too_many":
-            await interaction.response.send_message(f"You don't own that many shares of **{ticker}**.")
-        else:
-            await interaction.response.send_message(f"Logged selling **{shares:g}** shares of **{ticker}**.")
+        ok, message = await _sell_position(interaction.guild_id, interaction.user.id, ticker, shares)
+        await interaction.response.send_message(message)
 
     @portfolio_group.command(name="edit", description="Correct a position's shares or average cost, no blending")
     @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)

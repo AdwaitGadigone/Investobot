@@ -7,6 +7,27 @@ from services import db, market_data
 from services.ticker_search import ticker_autocomplete
 
 
+async def _set_alert(guild_id: int, user_id: int, ticker: str, direction: str, price: float) -> tuple[bool, str]:
+    # Shared by /alert set and the digest's quick-alert button, so both stay identical.
+    ticker = ticker.upper().strip()
+    if price <= 0:
+        return False, "Price needs to be a positive number."
+    if direction not in ("above", "below"):
+        return False, "Direction needs to be \"above\" or \"below\"."
+
+    try:
+        await market_data.get_quote(ticker)
+    except market_data.TickerNotFoundError:
+        return False, f"`{ticker}` doesn't look like a valid ticker."
+    except market_data.MarketDataTimeoutError:
+        return False, "Yahoo Finance is being slow right now, try again in a bit."
+
+    await db.add_alert(guild_id, user_id, ticker, direction, price)
+    # alerts.id is a global sequence shared by everyone, showing it would make a first-ever alert read as "#4".
+    position = len(await db.get_user_alerts(guild_id, user_id))
+    return True, f"Alert #{position} set. I'll DM you when **{ticker}** goes {direction} **${price:,.2f}**."
+
+
 class Alerts(commands.Cog):
     # Personal price alerts, the actual checking and DMing happens in cogs/scheduler.py's background loop.
 
@@ -38,23 +59,8 @@ class Alerts(commands.Cog):
         direction: app_commands.Choice[str],
         price: float,
     ):
-        ticker = ticker.upper().strip()
-
-        try:
-            await market_data.get_quote(ticker)
-        except market_data.TickerNotFoundError:
-            await interaction.response.send_message(f"`{ticker}` doesn't look like a valid ticker.")
-            return
-        except market_data.MarketDataTimeoutError:
-            await interaction.response.send_message("Yahoo Finance is being slow right now, try again in a bit.")
-            return
-
-        await db.add_alert(interaction.guild_id, interaction.user.id, ticker, direction.value, price)
-        # alerts.id is a global sequence shared by everyone, showing it would make a first-ever alert read as "#4".
-        position = len(await db.get_user_alerts(interaction.guild_id, interaction.user.id))
-        await interaction.response.send_message(
-            f"Alert #{position} set. I'll DM you when **{ticker}** goes {direction.value} **${price:,.2f}**."
-        )
+        ok, message = await _set_alert(interaction.guild_id, interaction.user.id, ticker, direction.value, price)
+        await interaction.response.send_message(message)
 
     @alert_group.command(name="list", description="Show your active price alerts")
     @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
