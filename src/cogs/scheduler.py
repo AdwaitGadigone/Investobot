@@ -12,6 +12,8 @@ from config import (
     CHECK_INTERVAL_MINUTES,
     DIGEST_TIME_UTC,
 )
+from cogs.alerts import _set_alert
+from cogs.portfolio import _buy_position, _sell_position
 from cogs.stocks import build_quote_embed
 from services import db, market_data
 
@@ -235,7 +237,11 @@ async def _build_digest_embed(
                 )
                 # The summary's own ANSI codes need to be inside the same ```ansi fence as the lines below
                 # it, a fence opened AFTER it left those escape codes rendering as literal garbled text.
-                description = _build_ansi_block(lines, prefix=summary + "\n" + col_header)
+                # The caption sits outside the fence instead, markdown italics don't render inside a code
+                # block, and keeping "today" vs "p/l" compact in the header alone wasn't spelling out that
+                # p/l is the position's entire return since you bought it, not anything to do with today.
+                caption = "*today = today's move · p/l = your total return since you bought*\n"
+                description = caption + _build_ansi_block(lines, prefix=summary + "\n" + col_header)
                 embeds.append(discord.Embed(title="💼 Portfolio", description=description, color=discord.Color.blurple()))
 
     if not has_content:
@@ -273,11 +279,108 @@ class DigestContentSelect(discord.ui.Select):
             await interaction.followup.send("Couldn't update the digest, try `/digest` again in a bit.", ephemeral=True)
 
 
+class QuickBuyModal(discord.ui.Modal, title="Log a buy"):
+    # One of the digest's quick-action buttons, lets you log a trade without leaving the DM to find /portfolio buy.
+    ticker: discord.ui.TextInput = discord.ui.TextInput(label="Ticker", placeholder="AAPL", max_length=10)
+    shares: discord.ui.TextInput = discord.ui.TextInput(label="Shares", placeholder="10")
+    price: discord.ui.TextInput = discord.ui.TextInput(
+        label="Price per share (blank = today's price)", required=False, placeholder="Leave blank to use the current price"
+    )
+
+    def __init__(self, guild_id: int, user_id: int):
+        super().__init__()
+        self.guild_id = guild_id
+        self.user_id = user_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            shares_val = float(self.shares.value)
+        except ValueError:
+            await interaction.response.send_message("Shares needs to be a number.", ephemeral=True)
+            return
+
+        price_val = None
+        if self.price.value.strip():
+            try:
+                price_val = float(self.price.value)
+            except ValueError:
+                await interaction.response.send_message("Price needs to be a number, or leave it blank.", ephemeral=True)
+                return
+
+        await interaction.response.defer(ephemeral=True)
+        _, message = await _buy_position(self.guild_id, self.user_id, self.ticker.value, shares_val, price_val)
+        await interaction.followup.send(message, ephemeral=True)
+
+
+class QuickSellModal(discord.ui.Modal, title="Log a sell"):
+    ticker: discord.ui.TextInput = discord.ui.TextInput(label="Ticker", placeholder="AAPL", max_length=10)
+    shares: discord.ui.TextInput = discord.ui.TextInput(label="Shares", placeholder="10")
+
+    def __init__(self, guild_id: int, user_id: int):
+        super().__init__()
+        self.guild_id = guild_id
+        self.user_id = user_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            shares_val = float(self.shares.value)
+        except ValueError:
+            await interaction.response.send_message("Shares needs to be a number.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        _, message = await _sell_position(self.guild_id, self.user_id, self.ticker.value, shares_val)
+        await interaction.followup.send(message, ephemeral=True)
+
+
+class QuickAlertModal(discord.ui.Modal, title="Set a price alert"):
+    ticker: discord.ui.TextInput = discord.ui.TextInput(label="Ticker", placeholder="AAPL", max_length=10)
+    # A plain text field, not a dropdown, modals only support text inputs, so "above"/"below" gets validated by hand.
+    direction: discord.ui.TextInput = discord.ui.TextInput(label="Above or below", placeholder="above / below", max_length=5)
+    price: discord.ui.TextInput = discord.ui.TextInput(label="Target price", placeholder="150")
+
+    def __init__(self, guild_id: int, user_id: int):
+        super().__init__()
+        self.guild_id = guild_id
+        self.user_id = user_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        direction_val = self.direction.value.strip().lower()
+        if direction_val not in ("above", "below"):
+            await interaction.response.send_message('Direction needs to be "above" or "below".', ephemeral=True)
+            return
+        try:
+            price_val = float(self.price.value)
+        except ValueError:
+            await interaction.response.send_message("Price needs to be a number.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        _, message = await _set_alert(self.guild_id, self.user_id, self.ticker.value, direction_val, price_val)
+        await interaction.followup.send(message, ephemeral=True)
+
+
 class DigestView(discord.ui.View):
     # A simple 24h-timeout view, not a persistent one, so it won't survive a redeploy but needs no startup wiring.
     def __init__(self, guild_id: int, user_id: int, content: str):
         super().__init__(timeout=86400)
+        self.guild_id = guild_id
+        self.user_id = user_id
         self.add_item(DigestContentSelect(guild_id, user_id, content))
+
+    # DMs are always 1:1 with the person it was sent to, no extra "is this your button" check needed here
+    # the way a view posted in a shared server channel would need.
+    @discord.ui.button(label="Buy", emoji="💰", style=discord.ButtonStyle.success, row=1)
+    async def buy_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(QuickBuyModal(self.guild_id, self.user_id))
+
+    @discord.ui.button(label="Sell", emoji="📉", style=discord.ButtonStyle.danger, row=1)
+    async def sell_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(QuickSellModal(self.guild_id, self.user_id))
+
+    @discord.ui.button(label="Alert", emoji="🔔", style=discord.ButtonStyle.secondary, row=1)
+    async def alert_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(QuickAlertModal(self.guild_id, self.user_id))
 
 
 # Labels double as the dropdown order on the posted server digest, day first since that's the default.
