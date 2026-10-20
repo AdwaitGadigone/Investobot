@@ -15,7 +15,7 @@ from config import (
 from cogs.alerts import _set_alert
 from cogs.portfolio import _buy_position, _cover_position, _pl_dollar, _sell_position, _short_position
 from cogs.stocks import build_quote_embed
-from services import db, market_data
+from services import currency, db, fx, market_data
 
 log = logging.getLogger("investo.scheduler")
 
@@ -64,10 +64,10 @@ def _digest_line(quote: dict, widths: tuple[int, int, int, int]) -> str:
     # exact same length and column positions before this swap).
     arrow = "^" if is_up else "v"
     reset = f"{esc}[0m"
-    price_str = f"{quote['price']:,.2f}"
+    price_str = currency.fmt_native_padded(quote["price"], quote.get("currency"), price_width)
     pct_str = f"{quote['change_pct']:+.2f}%"
     return (
-        f"{esc}[1;{color_code}m{quote['ticker']:<{ticker_width}} ${price_str:>{price_width}}  "
+        f"{esc}[1;{color_code}m{quote['ticker']:<{ticker_width}} {price_str}  "
         f"{arrow}{pct_str:>{pct_width}}  {_dollar_str(quote['change']):>{dollar_width}}{reset}"
     )
 
@@ -90,6 +90,8 @@ def _portfolio_row(p: dict, quote: dict) -> dict:
     return {
         "ticker": display_ticker,
         "is_short": direction == "short",
+        "currency": quote.get("currency") or "USD",
+        "value": value,
         "value_str": f"{value:,.2f}",
         "today_pct": quote["change_pct"],
         "today_str": f"{quote['change_pct']:+.2f}%",
@@ -119,8 +121,9 @@ def _portfolio_digest_line(row: dict, widths: tuple[int, int, int, int, int]) ->
     # inconsistency in Discord's ansi code block that a real character never has.
     today_arrow = "^" if row["today_pct"] >= 0 else "v"
     pl_arrow = "^" if row["pl_pct"] >= 0 else "v"
+    value_str = currency.fmt_native_padded(row["value"], row["currency"], value_width)
     return (
-        f"{esc}[1;{color_code}m{row['ticker']:<{ticker_width}} ${row['value_str']:>{value_width}}  "
+        f"{esc}[1;{color_code}m{row['ticker']:<{ticker_width}} {value_str}  "
         f"{today_arrow}{row['today_str']:>{pct_width}}  {pl_arrow}{row['pl_pct_str']:>{pl_pct_width}}  "
         f"{row['pl_dollar_str']:>{pl_dollar_width}}{reset}"
     )
@@ -227,18 +230,19 @@ async def _build_digest_embed(
             priced.sort(key=_pl_pct, reverse=True)
             if priced:
                 has_content = True
-                total_value = sum(p["shares"] * quote_cache[p["ticker"]]["price"] for p in priced)
-                total_cost = sum(p["shares"] * p["cost_basis"] for p in priced)
-                # A short loses money when the price goes up, the opposite of a long, so today's dollar
-                # move has to flip sign for a short position too, not just the all-time P/L below.
-                total_today = sum(
-                    p["shares"] * quote_cache[p["ticker"]]["change"] * (1 if p["direction"] == "long" else -1)
-                    for p in priced
-                )
-                total_pl = sum(
-                    _pl_dollar(p["direction"], p["shares"], p["cost_basis"], quote_cache[p["ticker"]]["price"])
-                    for p in priced
-                )
+                # Positions can be in different listing currencies (a Paris-listed EUR stock next to a
+                # US one), everything gets normalized to USD before adding to one portfolio-wide total.
+                total_value = total_cost = total_today = total_pl = 0.0
+                for p in priced:
+                    quote = quote_cache[p["ticker"]]
+                    cur = quote.get("currency") or "USD"
+                    rate = 1.0 if cur == "USD" else (await fx.get_fx_rate(cur, "USD") or 1.0)
+                    total_value += p["shares"] * quote["price"] * rate
+                    total_cost += p["shares"] * p["cost_basis"] * rate
+                    # A short loses money when the price goes up, the opposite of a long, so today's
+                    # dollar move has to flip sign for a short position too, not just the all-time P/L.
+                    total_today += p["shares"] * quote["change"] * rate * (1 if p["direction"] == "long" else -1)
+                    total_pl += _pl_dollar(p["direction"], p["shares"], p["cost_basis"], quote["price"]) * rate
                 summary = _portfolio_digest_summary(total_value, total_today, total_pl, total_cost)
                 rows = [_portfolio_row(p, quote_cache[p["ticker"]]) for p in priced]
                 # Width computed from the already-tagged display strings (a short's " S" suffix included),
@@ -761,9 +765,10 @@ class Scheduler(commands.Cog):
             await db.deactivate_alert(alert_id)
             try:
                 user = await self.bot.fetch_user(user_id)
+                cur = quote_cache[ticker].get("currency")
                 await user.send(
-                    f"🔔 **{ticker}** just hit **${price:,.2f}**. Your alert for "
-                    f"{direction} ${target_price:,.2f} has triggered."
+                    f"🔔 **{ticker}** just hit **{currency.fmt_native(price, cur)}**. Your alert for "
+                    f"{direction} {currency.fmt_native(target_price, cur)} has triggered."
                 )
             except discord.HTTPException:
                 # Probably means the user has server-member DMs turned off, nothing we can do about that.

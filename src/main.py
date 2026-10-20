@@ -35,6 +35,7 @@ INITIAL_EXTENSIONS = (
     "cogs.welcome",
     "cogs.insights",
     "cogs.compare",
+    "cogs.currency",
 )
 
 

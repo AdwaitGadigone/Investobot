@@ -95,6 +95,13 @@ CREATE TABLE IF NOT EXISTS bot_status (
     singleton_id INTEGER PRIMARY KEY DEFAULT 1 CHECK (singleton_id = 1),
     last_heartbeat TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS currency_pref (
+    guild_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    currency TEXT NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+);
 """
 
 
@@ -590,3 +597,30 @@ async def update_heartbeat() -> None:
             "INSERT INTO bot_status (singleton_id, last_heartbeat) VALUES (1, now()) "
             "ON CONFLICT (singleton_id) DO UPDATE SET last_heartbeat = excluded.last_heartbeat"
         )
+
+
+# Opt-in display currency, almost nobody sets this, prices just show in their native currency when it's unset.
+async def set_currency_pref(guild_id: int, user_id: int, currency: str) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO currency_pref (guild_id, user_id, currency) VALUES ($1, $2, $3) "
+            "ON CONFLICT (guild_id, user_id) DO UPDATE SET currency = excluded.currency",
+            guild_id, user_id, currency,
+        )
+
+
+async def get_currency_pref(guild_id: int, user_id: int) -> str | None:
+    async with _pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT currency FROM currency_pref WHERE guild_id = $1 AND user_id = $2",
+            guild_id, user_id,
+        )
+
+
+async def clear_currency_pref(guild_id: int, user_id: int) -> bool:
+    async with _pool.acquire() as conn:
+        status = await conn.execute(
+            "DELETE FROM currency_pref WHERE guild_id = $1 AND user_id = $2",
+            guild_id, user_id,
+        )
+        return _affected(status) > 0

@@ -1,9 +1,11 @@
+import asyncio
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from config import LIGHT_COOLDOWN_SECONDS
-from services import db, market_data
+from services import currency, db, market_data
 from services.ticker_search import ticker_autocomplete
 
 
@@ -16,7 +18,7 @@ async def _set_alert(guild_id: int, user_id: int, ticker: str, direction: str, p
         return False, "Direction needs to be \"above\" or \"below\"."
 
     try:
-        await market_data.get_quote(ticker)
+        quote = await market_data.get_quote(ticker)
     except market_data.TickerNotFoundError:
         return False, f"`{ticker}` doesn't look like a valid ticker."
     except market_data.MarketDataTimeoutError:
@@ -25,7 +27,8 @@ async def _set_alert(guild_id: int, user_id: int, ticker: str, direction: str, p
     await db.add_alert(guild_id, user_id, ticker, direction, price)
     # alerts.id is a global sequence shared by everyone, showing it would make a first-ever alert read as "#4".
     position = len(await db.get_user_alerts(guild_id, user_id))
-    return True, f"Alert #{position} set. I'll DM you when **{ticker}** goes {direction} **${price:,.2f}**."
+    price_str = currency.fmt_native(price, quote.get("currency"))
+    return True, f"Alert #{position} set. I'll DM you when **{ticker}** goes {direction} **{price_str}**."
 
 
 class Alerts(commands.Cog):
@@ -70,11 +73,17 @@ class Alerts(commands.Cog):
             await interaction.response.send_message("You have no active alerts.")
             return
 
+        await interaction.response.defer()
+        # Already-cached after the first fetch for most tickers, so this rarely means a fresh Yahoo call per alert.
+        quotes = await asyncio.gather(
+            *(market_data.get_quote(ticker) for _, ticker, _, _ in rows), return_exceptions=True
+        )
         lines = [
-            f"#{i} - **{ticker}** {direction} ${price:,.2f}"
-            for i, (_, ticker, direction, price) in enumerate(rows, start=1)
+            f"#{i} - **{ticker}** {direction} "
+            f"{currency.fmt_native(price, None if isinstance(quote, Exception) else quote.get('currency'))}"
+            for i, ((_, ticker, direction, price), quote) in enumerate(zip(rows, quotes), start=1)
         ]
-        await interaction.response.send_message("\n".join(lines))
+        await interaction.followup.send("\n".join(lines))
 
     @alert_group.command(name="remove", description="Cancel one of your price alerts")
     @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)

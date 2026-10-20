@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import HEAVY_COOLDOWN_SECONDS
-from services import charts, market_data
+from services import charts, currency, db, fx, market_data
 from services.ticker_search import ticker_autocomplete
 
 
@@ -22,7 +22,7 @@ def _fmt_num(n: float | None) -> str:
     return f"{n:,.0f}"
 
 
-def _range_bar(current: float, low: float | None, high: float | None, width: int = 14) -> str:
+def _range_bar(current: float, low: float | None, high: float | None, cur: str, width: int = 14) -> str:
     # Shows where the price sits in the 52wk range, e.g. $150.00 [████████░░░░] $210.00
     if low is None or high is None or high <= low:
         return "N/A"
@@ -30,7 +30,7 @@ def _range_bar(current: float, low: float | None, high: float | None, width: int
     pct = max(0.0, min(1.0, (current - low) / (high - low)))
     filled = round(pct * width)
     bar = "█" * filled + "░" * (width - filled)
-    return f"${low:,.2f}  {bar}  ${high:,.2f}"
+    return f"{currency.fmt_native(low, cur)}  {bar}  {currency.fmt_native(high, cur)}"
 
 
 def _ansi_change_line(quote: dict, is_up: bool) -> str:
@@ -40,38 +40,56 @@ def _ansi_change_line(quote: dict, is_up: bool) -> str:
     color_code = "32" if is_up else "31"
     reset = f"{esc}[0m"
     colored = f"{esc}[1;{color_code}m{arrow} {quote['change']:+.2f} ({quote['change_pct']:+.2f}%){reset}"
-    return f"```ansi\n{colored} today, prev close ${quote['prev_close']:,.2f}\n```"
+    prev_close = currency.fmt_native(quote["prev_close"], quote.get("currency"))
+    return f"```ansi\n{colored} today, prev close {prev_close}\n```"
 
 
 def build_quote_embed(quote: dict) -> discord.Embed:
     # Also reused by cogs/scheduler.py, so the automatic alerts look the same as /stock.
     is_up = quote["change"] >= 0
     color = discord.Color.green() if is_up else discord.Color.red()
+    cur = quote.get("currency")
 
     embed = discord.Embed(
         title=f"{quote['name']} ({quote['ticker']})",
-        description=f"### ${quote['price']:,.2f}\n{_ansi_change_line(quote, is_up)}",
+        description=f"### {currency.fmt_native(quote['price'], cur)}\n{_ansi_change_line(quote, is_up)}",
         color=color,
     )
 
     embed.add_field(
         name="Day Range",
-        value=f"${quote['day_low']:,.2f} - ${quote['day_high']:,.2f}"
+        value=f"{currency.fmt_native(quote['day_low'], cur)} - {currency.fmt_native(quote['day_high'], cur)}"
         if quote["day_low"] and quote["day_high"]
         else "N/A",
         inline=True,
     )
     embed.add_field(name="Volume", value=_fmt_num(quote["volume"]), inline=True)
-    embed.add_field(name="Market Cap", value=f"${_fmt_num(quote['market_cap'])}", inline=True)
+    cap = quote["market_cap"]
+    cap_value = f"{_fmt_num(cap)} {cur}" if cap and cur and cur != "USD" else f"${_fmt_num(cap)}"
+    embed.add_field(name="Market Cap", value=cap_value, inline=True)
 
     embed.add_field(
         name="52-Week Range",
-        value=_range_bar(quote["price"], quote["year_low"], quote["year_high"]),
+        value=_range_bar(quote["price"], quote["year_low"], quote["year_high"], cur),
         inline=False,
     )
 
     embed.set_footer(text=_source_footer(quote))
     return embed
+
+
+async def _add_converted_field(embed: discord.Embed, quote: dict, guild_id: int, user_id: int) -> None:
+    # The opt-in /currency set feature, a no-op field for the ~99.9% of people who never touch that setting.
+    cur = quote.get("currency") or "USD"
+    pref = await db.get_currency_pref(guild_id, user_id)
+    if not pref or pref == cur:
+        return
+
+    rate = await fx.get_fx_rate(cur, pref)
+    if rate is None:
+        return
+
+    embed.add_field(name=f"Converted ({pref})", value=currency.fmt_native(quote["price"] * rate, pref), inline=True)
 
 
 def _source_footer(quote: dict) -> str:
@@ -81,7 +99,9 @@ def _source_footer(quote: dict) -> str:
     return "Data: Yahoo Finance (delayed)"
 
 
-async def _build_stock_response(ticker: str, range_key: str) -> tuple[discord.Embed, discord.File]:
+async def _build_stock_response(
+    ticker: str, range_key: str, guild_id: int = None, user_id: int = None
+) -> tuple[discord.Embed, discord.File]:
     # Shared by the initial /stock reply and the range dropdown below, so both build an identical embed and chart.
     range_opts = charts.RANGE_OPTIONS[range_key]
 
@@ -106,13 +126,17 @@ async def _build_stock_response(ticker: str, range_key: str) -> tuple[discord.Em
         if mean:
             upside = (mean - quote["price"]) / quote["price"] * 100
             direction = "upside" if upside >= 0 else "downside"
-            target_line = f"\nTarget **${mean:,.2f}** ({upside:+.1f}% {direction})"
+            target_price = currency.fmt_native(mean, quote.get("currency"))
+            target_line = f"\nTarget **{target_price}** ({upside:+.1f}% {direction})"
 
         embed.add_field(
             name="Analyst Consensus",
             value=f"{emoji} **{label}**{target_line}\n*use /rating for the full breakdown*",
             inline=False,
         )
+
+    if guild_id is not None and user_id is not None:
+        await _add_converted_field(embed, quote, guild_id, user_id)
 
     chart_buf = await asyncio.to_thread(charts.build_price_chart, ticker, history, range_key)
     chart_file = discord.File(chart_buf, filename="chart.png")
@@ -143,7 +167,9 @@ class RangeSelect(discord.ui.Select):
         await interaction.response.defer()
 
         try:
-            embed, chart_file = await _build_stock_response(self.ticker, range_key)
+            embed, chart_file = await _build_stock_response(
+                self.ticker, range_key, interaction.guild_id, interaction.user.id
+            )
         except (market_data.TickerNotFoundError, market_data.MarketDataTimeoutError):
             return
 
@@ -197,7 +223,7 @@ class Stocks(commands.Cog):
         range_key = range.value if range else "1mo"
 
         try:
-            embed, chart_file = await _build_stock_response(ticker, range_key)
+            embed, chart_file = await _build_stock_response(ticker, range_key, interaction.guild_id, interaction.user.id)
         except market_data.TickerNotFoundError:
             await interaction.followup.send(
                 f"Couldn't find a ticker called `{ticker}`. Double-check the symbol."

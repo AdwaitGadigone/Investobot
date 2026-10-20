@@ -90,6 +90,14 @@ SECTIONS = [
         "using an AI that pulls in live prices for any ticker you mention.",
     ),
     (
+        "💱 Currency (niche setting)",
+        "Prices show in each ticker's real native currency by default (a Paris-listed stock shows EUR, "
+        "not a mislabeled $). If you want everything also converted into one currency of your own:\n"
+        "`/currency set <code>` - show prices converted into this currency too, e.g. `EUR`, `GBP`, `JPY`\n"
+        "`/currency off` - stop converting, back to native currency only\n"
+        "`/currency show` - check what you've got set",
+    ),
+    (
         "💬 Feedback & Status",
         "`/feedback <message> [category]` - send a bug report, suggestion, or general feedback "
         "straight to the bot owner.\n"
