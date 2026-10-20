@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS portfolio (
     guild_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
     ticker TEXT NOT NULL,
+    -- One position per ticker, long or short, not both at once, keeps every command and P/L calculation
+    -- from needing to ask "which one do you mean" and matches how almost everyone actually trades.
+    direction TEXT NOT NULL DEFAULT 'long',
     shares DOUBLE PRECISION NOT NULL,
     cost_basis DOUBLE PRECISION NOT NULL,
     PRIMARY KEY (guild_id, user_id, ticker)
@@ -105,6 +108,7 @@ async def init_db() -> None:
         # CREATE TABLE IF NOT EXISTS above only helps fresh databases, existing ones need this to pick up new columns.
         await conn.execute("ALTER TABLE digest_optin ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT 'watchlist'")
         await conn.execute("ALTER TABLE guild_settings ADD COLUMN IF NOT EXISTS updates_channel_id BIGINT")
+        await conn.execute("ALTER TABLE portfolio ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'long'")
 
 
 def _affected(status: str) -> int:
@@ -381,18 +385,30 @@ async def all_digest_optins() -> list[tuple[int, int, str]]:
 async def get_portfolio(guild_id: int, user_id: int) -> list[tuple]:
     async with _pool.acquire() as conn:
         return await conn.fetch(
-            "SELECT ticker, shares, cost_basis FROM portfolio "
+            "SELECT ticker, direction, shares, cost_basis FROM portfolio "
             "WHERE guild_id = $1 AND user_id = $2 ORDER BY ticker",
             guild_id, user_id,
         )
 
 
-async def buy_position(guild_id: int, user_id: int, ticker: str, shares: float, price: float) -> None:
+async def _get_position(conn, guild_id: int, user_id: int, ticker: str):
+    return await conn.fetchrow(
+        "SELECT direction, shares, cost_basis FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
+        guild_id, user_id, ticker,
+    )
+
+
+async def _open_position(
+    guild_id: int, user_id: int, ticker: str, direction: str, shares: float, price: float
+) -> str:
+    # Shared by buy_position (direction="long") and short_position (direction="short"). One position per
+    # ticker, so opening a long while a short is open on the same ticker (or vice versa) is rejected
+    # instead of silently blending two opposite bets together, returns "ok", or the direction already held.
     async with _pool.acquire() as conn:
-        existing = await conn.fetchrow(
-            "SELECT shares, cost_basis FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
-            guild_id, user_id, ticker,
-        )
+        existing = await _get_position(conn, guild_id, user_id, ticker)
+        if existing and existing["direction"] != direction:
+            return existing["direction"]
+
         if existing:
             # Blends into one weighted average cost instead of tracking each purchase as its own lot.
             total_shares = existing["shares"] + shares
@@ -405,21 +421,31 @@ async def buy_position(guild_id: int, user_id: int, ticker: str, shares: float, 
             )
         else:
             await conn.execute(
-                "INSERT INTO portfolio (guild_id, user_id, ticker, shares, cost_basis) "
-                "VALUES ($1, $2, $3, $4, $5)",
-                guild_id, user_id, ticker, shares, price,
+                "INSERT INTO portfolio (guild_id, user_id, ticker, direction, shares, cost_basis) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
+                guild_id, user_id, ticker, direction, shares, price,
             )
+        return "ok"
 
 
-async def sell_position(guild_id: int, user_id: int, ticker: str, shares: float) -> str:
-    # Returns "ok", "not_found", or "too_many" so the cog can show a specific error message.
+async def buy_position(guild_id: int, user_id: int, ticker: str, shares: float, price: float) -> str:
+    return await _open_position(guild_id, user_id, ticker, "long", shares, price)
+
+
+async def short_position(guild_id: int, user_id: int, ticker: str, shares: float, price: float) -> str:
+    return await _open_position(guild_id, user_id, ticker, "short", shares, price)
+
+
+async def _close_position(guild_id: int, user_id: int, ticker: str, direction: str, shares: float) -> str:
+    # Shared by sell_position (direction="long") and cover_position (direction="short"). Returns "ok",
+    # "not_found", "too_many", or the position's actual direction if it doesn't match what was asked for,
+    # so /portfolio sell on a short position says to use /portfolio cover instead of just failing quietly.
     async with _pool.acquire() as conn:
-        existing = await conn.fetchrow(
-            "SELECT shares FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
-            guild_id, user_id, ticker,
-        )
+        existing = await _get_position(conn, guild_id, user_id, ticker)
         if not existing:
             return "not_found"
+        if existing["direction"] != direction:
+            return existing["direction"]
         if shares > existing["shares"]:
             return "too_many"
 
@@ -438,6 +464,14 @@ async def sell_position(guild_id: int, user_id: int, ticker: str, shares: float)
         return "ok"
 
 
+async def sell_position(guild_id: int, user_id: int, ticker: str, shares: float) -> str:
+    return await _close_position(guild_id, user_id, ticker, "long", shares)
+
+
+async def cover_position(guild_id: int, user_id: int, ticker: str, shares: float) -> str:
+    return await _close_position(guild_id, user_id, ticker, "short", shares)
+
+
 async def remove_position(guild_id: int, user_id: int, ticker: str) -> bool:
     async with _pool.acquire() as conn:
         status = await conn.execute(
@@ -450,12 +484,10 @@ async def remove_position(guild_id: int, user_id: int, ticker: str) -> bool:
 async def edit_position(
     guild_id: int, user_id: int, ticker: str, shares: float | None, cost_basis: float | None
 ) -> bool:
-    # Overwrites directly instead of blending like buy_position, this is for fixing a typo'd entry.
+    # Overwrites directly instead of blending like buy_position/short_position, this is for fixing a
+    # typo'd entry, direction stays whatever it already was, editing never flips long into short.
     async with _pool.acquire() as conn:
-        existing = await conn.fetchrow(
-            "SELECT shares, cost_basis FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
-            guild_id, user_id, ticker,
-        )
+        existing = await _get_position(conn, guild_id, user_id, ticker)
         if not existing:
             return False
 

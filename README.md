@@ -21,10 +21,10 @@ data, either surface, and the bot works in any server it's added to, not just on
 | `/fgi` | The crypto market's Fear & Greed Index right now |
 | `/watchlist add \| remove \| list` | Your own private watchlist, visible only to you. `add` takes multiple tickers at once, separated by commas or spaces |
 | `/track add \| remove \| list` | The server's shared tracked list, this is what the automatic updates below actually scan. `add` takes multiple tickers at once too |
-| `/portfolio buy \| sell \| edit \| remove \| view` | Track shares you actually own, with a live profit/loss view (average cost basis, blended across buys). Leave `buy`'s price blank to use today's live price. `edit` corrects the share count or average cost directly, without blending, for fixing a typo'd entry |
+| `/portfolio buy \| sell \| short \| cover \| edit \| remove \| view` | Track shares you actually own, long or short, with a live profit/loss view (average cost basis, blended across buys). Leave `buy`/`short`'s price blank to use today's live price. You can't hold a long and a short on the same ticker at once. `edit` corrects the share count or average cost directly, without blending, for fixing a typo'd entry |
 | `/alert set \| list \| remove` | DMs you the moment a ticker crosses a price you choose |
 | `/notify` | Toggles the Stock Alerts role, so you get pinged whenever the automatic updates post something |
-| `/digest [content]` | Toggles a personal DM every morning summarizing your watchlist, portfolio, or both. A dropdown right on the DM lets you switch what it shows afterward too, and Buy/Sell/Alert buttons let you act on it directly |
+| `/digest [content]` | Toggles a personal DM every morning summarizing your watchlist, portfolio, or both. A dropdown right on the DM lets you switch what it shows afterward too, and Buy/Sell/Short/Cover/Alert buttons let you act on it directly |
 | `/digest_now` | Sends that same DM immediately instead of waiting for the morning schedule, works whether the daily one is on or off |
 | DM the bot "digest" | Same as `/digest_now`, but works from inside a DM, since slash commands can't be run there |
 | `/serverdigest set \| off` | Admin-only (Manage Server). Posts a daily digest of the server's tracked list to a channel of your choice, with a switchable time window and a section flagging other big movers |

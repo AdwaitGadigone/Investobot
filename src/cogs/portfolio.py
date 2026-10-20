@@ -17,11 +17,23 @@ async def _my_portfolio_tickers(guild_id: int, user_id: int) -> list[str]:
 _owned_ticker_autocomplete = make_owned_autocomplete(_my_portfolio_tickers)
 
 
-async def _buy_position(guild_id: int, user_id: int, ticker: str, shares: float, price: float | None) -> tuple[bool, str]:
-    # Shared by /portfolio buy and the digest's quick-buy button, so both stay identical. price=None means
-    # "use today's live price", a real user's own feedback suggestion, checking an exact number first was
+def _pl_dollar(direction: str, shares: float, cost_basis: float, price: float) -> float:
+    # A short profits when price falls below what you shorted at, the exact opposite of a long position,
+    # every P/L calculation in this cog and the digest routes through this one function so that's never
+    # recomputed two different ways in two different places.
+    if direction == "short":
+        return (cost_basis - price) * shares
+    return (price - cost_basis) * shares
+
+
+async def _open_position(
+    guild_id: int, user_id: int, ticker: str, direction: str, shares: float, price: float | None
+) -> tuple[bool, str]:
+    # Shared by /portfolio buy, /portfolio short, and the digest's quick-buy button. price=None means "use
+    # today's live price", a real user's own feedback suggestion, checking an exact number first was
     # friction for the common case of just logging a trade you made right now.
     ticker = ticker.upper().strip()
+    verb = "short" if direction == "short" else "buy"
     if shares <= 0:
         return False, "Shares needs to be a positive number."
     if price is not None and price <= 0:
@@ -35,38 +47,70 @@ async def _buy_position(guild_id: int, user_id: int, ticker: str, shares: float,
         return False, "Yahoo Finance is being slow right now, try again in a bit."
 
     actual_price = price if price is not None else quote["price"]
-    await db.buy_position(guild_id, user_id, ticker, shares, actual_price)
+    result = await db.short_position(guild_id, user_id, ticker, shares, actual_price) if direction == "short" \
+        else await db.buy_position(guild_id, user_id, ticker, shares, actual_price)
+    if result != "ok":
+        # result is the direction actually held, "long" or "short", when it conflicts with this one,
+        # pointing at whichever command closes THAT direction, not the one they just tried to use.
+        close_cmd = "sell" if result == "long" else "cover"
+        return False, (
+            f"You already have a **{result}** position in **{ticker}**, `/portfolio {close_cmd}` it "
+            f"first before you can {verb} it."
+        )
     return True, (
-        f"Logged **{shares:g}** shares of **{ticker}** at **${actual_price:,.2f}**. "
-        f"Check `/portfolio view` for your updated position."
+        f"Logged {'shorting' if direction == 'short' else 'buying'} **{shares:g}** shares of **{ticker}** "
+        f"at **${actual_price:,.2f}**. Check `/portfolio view` for your updated position."
     )
 
 
-async def _sell_position(guild_id: int, user_id: int, ticker: str, shares: float) -> tuple[bool, str]:
-    # Shared by /portfolio sell and the digest's quick-sell button.
+async def _buy_position(guild_id: int, user_id: int, ticker: str, shares: float, price: float | None) -> tuple[bool, str]:
+    return await _open_position(guild_id, user_id, ticker, "long", shares, price)
+
+
+async def _short_position(guild_id: int, user_id: int, ticker: str, shares: float, price: float | None) -> tuple[bool, str]:
+    return await _open_position(guild_id, user_id, ticker, "short", shares, price)
+
+
+async def _close_position(guild_id: int, user_id: int, ticker: str, direction: str, shares: float) -> tuple[bool, str]:
+    # Shared by /portfolio sell, /portfolio cover, and the digest's quick-sell button.
     ticker = ticker.upper().strip()
     if shares <= 0:
         return False, "Shares needs to be a positive number."
 
-    result = await db.sell_position(guild_id, user_id, ticker, shares)
+    result = await db.cover_position(guild_id, user_id, ticker, shares) if direction == "short" \
+        else await db.sell_position(guild_id, user_id, ticker, shares)
     if result == "not_found":
         return False, f"You don't have a position in **{ticker}**."
     if result == "too_many":
-        return False, f"You don't own that many shares of **{ticker}**."
-    return True, f"Logged selling **{shares:g}** shares of **{ticker}**."
+        return False, f"You don't hold that many shares of **{ticker}**."
+    if result not in ("ok",):
+        # result is the direction actually held, pointing them at the right command for it.
+        other_cmd = "/portfolio cover" if result == "short" else "/portfolio sell"
+        return False, f"**{ticker}** is a **{result}** position, use `{other_cmd}` instead."
+    verb = "covering" if direction == "short" else "selling"
+    return True, f"Logged {verb} **{shares:g}** shares of **{ticker}**."
 
 
-def _pl_line(ticker: str, shares: float, cost_basis: float, price: float) -> str:
+async def _sell_position(guild_id: int, user_id: int, ticker: str, shares: float) -> tuple[bool, str]:
+    return await _close_position(guild_id, user_id, ticker, "long", shares)
+
+
+async def _cover_position(guild_id: int, user_id: int, ticker: str, shares: float) -> tuple[bool, str]:
+    return await _close_position(guild_id, user_id, ticker, "short", shares)
+
+
+def _pl_line(ticker: str, direction: str, shares: float, cost_basis: float, price: float) -> str:
     # Same ANSI color trick used elsewhere in the bot, one line per position.
     esc = chr(27)
-    current_value = shares * price
+    pl_dollar = _pl_dollar(direction, shares, cost_basis, price)
     cost_value = shares * cost_basis
-    pl_dollar = current_value - cost_value
     pl_pct = (pl_dollar / cost_value * 100) if cost_value else 0.0
     color_code = "32" if pl_dollar >= 0 else "31"
     reset = f"{esc}[0m"
+    tag = " (short)" if direction == "short" else ""
+    label = "shorted at" if direction == "short" else "avg"
     return (
-        f"{esc}[1;{color_code}m{ticker:<6}{shares:>8.2f} sh @ ${cost_basis:>8.2f} avg -> "
+        f"{esc}[1;{color_code}m{ticker:<6}{tag}{shares:>8.2f} sh @ ${cost_basis:>8.2f} {label} -> "
         f"${price:>8.2f}  {pl_dollar:+,.2f} ({pl_pct:+.1f}%){reset}"
     )
 
@@ -98,6 +142,27 @@ class Portfolio(commands.Cog):
     @app_commands.autocomplete(ticker=_owned_ticker_autocomplete)
     async def portfolio_sell(self, interaction: discord.Interaction, ticker: str, shares: float):
         ok, message = await _sell_position(interaction.guild_id, interaction.user.id, ticker, shares)
+        await interaction.response.send_message(message)
+
+    @portfolio_group.command(name="short", description="Open a short position, adds to it if you already have one")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
+    @app_commands.describe(
+        ticker="Stock ticker symbol, e.g. AAPL",
+        shares="Number of shares shorted",
+        price="Price per share you shorted at, leave blank to use today's live price",
+    )
+    @app_commands.autocomplete(ticker=ticker_autocomplete)
+    async def portfolio_short(self, interaction: discord.Interaction, ticker: str, shares: float, price: float = None):
+        await interaction.response.defer()
+        ok, message = await _short_position(interaction.guild_id, interaction.user.id, ticker, shares, price)
+        await interaction.followup.send(message)
+
+    @portfolio_group.command(name="cover", description="Buy back shares to close or reduce a short position")
+    @app_commands.checks.cooldown(1, LIGHT_COOLDOWN_SECONDS)
+    @app_commands.describe(ticker="Stock ticker symbol", shares="Number of shares bought back")
+    @app_commands.autocomplete(ticker=_owned_ticker_autocomplete)
+    async def portfolio_cover(self, interaction: discord.Interaction, ticker: str, shares: float):
+        ok, message = await _cover_position(interaction.guild_id, interaction.user.id, ticker, shares)
         await interaction.response.send_message(message)
 
     @portfolio_group.command(name="edit", description="Correct a position's shares or average cost, no blending")
@@ -153,26 +218,31 @@ class Portfolio(commands.Cog):
 
         # Fetched together instead of one at a time, so wall-clock time doesn't scale with position count.
         quotes = await asyncio.gather(
-            *(market_data.get_quote(ticker) for ticker, _, _ in positions), return_exceptions=True
+            *(market_data.get_quote(ticker) for ticker, direction, shares, cost_basis in positions),
+            return_exceptions=True,
         )
 
         lines = []
         total_value = 0.0
         total_cost = 0.0
-        for (ticker, shares, cost_basis), quote in zip(positions, quotes):
+        total_pl = 0.0
+        for (ticker, direction, shares, cost_basis), quote in zip(positions, quotes):
             if isinstance(quote, Exception):
                 # A delisted or temporarily broken ticker shouldn't hide the rest of the portfolio.
                 continue
             price = quote["price"]
-            lines.append(_pl_line(ticker, shares, cost_basis, price))
+            lines.append(_pl_line(ticker, direction, shares, cost_basis, price))
             total_value += shares * price
             total_cost += shares * cost_basis
+            # Summed directly instead of derived from total_value - total_cost, a short's P/L isn't that
+            # simple subtraction (it profits when price falls), each position's own correctly-signed
+            # number is what actually adds up right across a portfolio mixing longs and shorts.
+            total_pl += _pl_dollar(direction, shares, cost_basis, price)
 
         if not lines:
             await interaction.followup.send("Couldn't fetch live prices for your positions right now, try again shortly.")
             return
 
-        total_pl = total_value - total_cost
         total_pl_pct = (total_pl / total_cost * 100) if total_cost else 0.0
 
         # Embed descriptions cap at 4096 characters, a huge portfolio (70+ positions) could otherwise blow past
