@@ -97,6 +97,41 @@ def build_price_chart(ticker: str, history, range_key: str) -> io.BytesIO:
     return buf
 
 
+def build_portfolio_chart(values) -> io.BytesIO:
+    # Same look as build_price_chart's top panel, no volume data exists for a portfolio total so there's
+    # no second subplot.
+    is_up = values.iloc[-1] >= values.iloc[0]
+    line_color = COLOR_GOOD if is_up else COLOR_CRITICAL
+
+    fig = Figure(figsize=(7.5, 3.6), dpi=120)
+    fig.patch.set_alpha(0.0)
+    ax = fig.add_subplot(111)
+
+    x = values.index
+    ax.plot(x, values, color=line_color, linewidth=2.2, solid_capstyle="round")
+    ax.fill_between(x, values, values.min(), color=line_color, alpha=0.12)
+
+    ax.set_facecolor("none")
+    ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=12)
+    ax.tick_params(axis="x", colors=COLOR_TEXT, labelsize=11)
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    ax.yaxis.set_major_formatter(lambda val, pos: f"${val:,.0f}")
+    ax.grid(axis="y", color=COLOR_GRID, linewidth=0.6, alpha=0.5)
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    locator = mdates.AutoDateLocator(minticks=4, maxticks=6)
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    fig.autofmt_xdate(rotation=0, ha="center")
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", transparent=True, bbox_inches="tight", pad_inches=0.15)
+    buf.seek(0)
+    return buf
+
+
 def _fmt_volume(val: float) -> str:
     if val >= 1_000_000:
         return f"{val / 1_000_000:.0f}M"

@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import HEAVY_COOLDOWN_SECONDS, LIGHT_COOLDOWN_SECONDS
-from services import currency, db, fx, market_data
+from services import charts, currency, db, fx, market_data, portfolio_history
 from services.ticker_search import make_owned_autocomplete, ticker_autocomplete
 
 
@@ -285,6 +285,41 @@ class Portfolio(commands.Cog):
         embed.set_footer(text="Data: Yahoo Finance, real-time price via Finnhub where available")
 
         await interaction.followup.send(embed=embed)
+
+    @portfolio_group.command(name="chart", description="See your total portfolio value over time (approximate)")
+    @app_commands.checks.cooldown(1, HEAVY_COOLDOWN_SECONDS)
+    @app_commands.describe(range="How far back the chart should go (defaults to 1 month)")
+    @app_commands.choices(
+        range=[app_commands.Choice(name=opts["label"], value=key) for key, opts in charts.RANGE_OPTIONS.items()]
+    )
+    async def portfolio_chart(self, interaction: discord.Interaction, range: app_commands.Choice[str] = None):
+        await interaction.response.defer()
+        range_key = range.value if range else "1mo"
+
+        positions = await db.get_portfolio(interaction.guild_id, interaction.user.id)
+        if not positions:
+            await interaction.followup.send("You don't have any positions yet. Log one with `/portfolio buy`.")
+            return
+
+        values = await portfolio_history.get_portfolio_history(positions, range_key)
+        if values is None or len(values) < 2:
+            await interaction.followup.send("Not enough price history yet to chart this range.")
+            return
+
+        is_up = values.iloc[-1] >= values.iloc[0]
+        chart_buf = await asyncio.to_thread(charts.build_portfolio_chart, values)
+        chart_file = discord.File(chart_buf, filename="portfolio_chart.png")
+
+        embed = discord.Embed(
+            title=f"{interaction.user.display_name}'s Portfolio Value",
+            color=discord.Color.green() if is_up else discord.Color.red(),
+        )
+        embed.set_image(url="attachment://portfolio_chart.png")
+        embed.set_footer(
+            text="Approximate: current holdings applied to past prices, not a full buy/sell timeline. "
+            "Values normalized to USD."
+        )
+        await interaction.followup.send(embed=embed, file=chart_file)
 
 
 async def setup(bot: commands.Bot):
