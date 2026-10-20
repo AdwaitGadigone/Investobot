@@ -61,7 +61,8 @@ SECTIONS = [
         "`/portfolio cover <ticker> <shares>` - buy back shares to reduce or close a short\n"
         "`/portfolio remove <ticker>` - fully clear a position\n"
         "`/portfolio view` - see every holding with live profit/loss, plus your totals. Short "
-        "positions are tagged (S) and their profit/loss is flipped, since they gain when the price drops",
+        "positions are tagged (S) and their profit/loss is flipped, since they gain when the price drops\n"
+        "`/portfolio chart [range]` - an approximate chart of your total portfolio value over time",
     ),
     (
         "🔔 Alerts & Notifications",
