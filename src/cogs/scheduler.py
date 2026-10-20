@@ -13,7 +13,7 @@ from config import (
     DIGEST_TIME_UTC,
 )
 from cogs.alerts import _set_alert
-from cogs.portfolio import _buy_position, _sell_position
+from cogs.portfolio import _buy_position, _cover_position, _pl_dollar, _sell_position, _short_position
 from cogs.stocks import build_quote_embed
 from services import db, market_data
 
@@ -76,12 +76,20 @@ def _portfolio_row(p: dict, quote: dict) -> dict:
     # Precomputes every displayed value once, shared by the width pass below and the line-building pass,
     # so the two can never disagree on what a position's numbers actually are.
     price = quote["price"]
+    direction = p["direction"]
     value = p["shares"] * price
     cost = p["shares"] * p["cost_basis"]
-    pl_dollar = value - cost
+    # _pl_dollar (imported from cogs.portfolio) is the one place this math lives, a short profits when
+    # price falls below what it was shorted at, the opposite of a long, every caller routes through it
+    # instead of recomputing the sign flip its own way.
+    pl_dollar = _pl_dollar(direction, p["shares"], p["cost_basis"], price)
     pl_pct = (pl_dollar / cost * 100) if cost else 0.0
+    # A trailing " S" tag, not a symbol, same reasoning as the ^/v swap elsewhere in this file, a real
+    # character can't drift out of alignment on a client whose ansi code block isn't perfectly monospace.
+    display_ticker = f"{p['ticker']} S" if direction == "short" else p["ticker"]
     return {
-        "ticker": p["ticker"],
+        "ticker": display_ticker,
+        "is_short": direction == "short",
         "value_str": f"{value:,.2f}",
         "today_pct": quote["change_pct"],
         "today_str": f"{quote['change_pct']:+.2f}%",
@@ -208,22 +216,35 @@ async def _build_digest_embed(
             priced = [p for p in positions if p["ticker"] in quote_cache]
             # Sorted by P/L, not today's move, a portfolio's headline number is how the position has
             # actually done since you bought it, not its blip today, that's what watchlist is for.
-            # Shares cancel out of (value - cost) / cost, so this is equivalent to the per-position math
-            # in _portfolio_digest_line below without needing to build the full line just to sort by it.
             def _pl_pct(p):
                 cost_basis = p["cost_basis"]
-                return (quote_cache[p["ticker"]]["price"] - cost_basis) / cost_basis * 100 if cost_basis else 0.0
+                if not cost_basis:
+                    return 0.0
+                return _pl_dollar(p["direction"], p["shares"], cost_basis, quote_cache[p["ticker"]]["price"]) / (
+                    p["shares"] * cost_basis
+                ) * 100
 
             priced.sort(key=_pl_pct, reverse=True)
             if priced:
                 has_content = True
                 total_value = sum(p["shares"] * quote_cache[p["ticker"]]["price"] for p in priced)
                 total_cost = sum(p["shares"] * p["cost_basis"] for p in priced)
-                total_today = sum(p["shares"] * quote_cache[p["ticker"]]["change"] for p in priced)
-                summary = _portfolio_digest_summary(total_value, total_today, total_value - total_cost, total_cost)
+                # A short loses money when the price goes up, the opposite of a long, so today's dollar
+                # move has to flip sign for a short position too, not just the all-time P/L below.
+                total_today = sum(
+                    p["shares"] * quote_cache[p["ticker"]]["change"] * (1 if p["direction"] == "long" else -1)
+                    for p in priced
+                )
+                total_pl = sum(
+                    _pl_dollar(p["direction"], p["shares"], p["cost_basis"], quote_cache[p["ticker"]]["price"])
+                    for p in priced
+                )
+                summary = _portfolio_digest_summary(total_value, total_today, total_pl, total_cost)
                 rows = [_portfolio_row(p, quote_cache[p["ticker"]]) for p in priced]
+                # Width computed from the already-tagged display strings (a short's " S" suffix included),
+                # not the raw ticker, or a short position's column would come out one character too narrow.
                 ticker_width, value_width, pct_width, pl_pct_width, pl_dollar_width = _portfolio_digest_widths(
-                    rows, _ticker_width(p["ticker"] for p in priced)
+                    rows, _ticker_width(r["ticker"] for r in rows)
                 )
                 widths = (ticker_width, value_width, pct_width, pl_pct_width, pl_dollar_width)
                 lines = [_portfolio_digest_line(r, widths) for r in rows]
@@ -240,8 +261,10 @@ async def _build_digest_embed(
                 # The caption sits outside the fence instead, markdown italics don't render inside a code
                 # block, and keeping "today" vs "p/l" compact in the header alone wasn't spelling out that
                 # p/l is the position's entire return since you bought it, not anything to do with today.
-                caption = "*today = today's move · p/l = your total return since you bought*\n"
-                description = caption + _build_ansi_block(lines, prefix=summary + "\n" + col_header)
+                caption = "*today = today's move · p/l = your total return since you bought*"
+                if any(r["is_short"] for r in rows):
+                    caption += " · *(S) = short position, inverted: it profits when the price drops*"
+                description = caption + "\n" + _build_ansi_block(lines, prefix=summary + "\n" + col_header)
                 embeds.append(discord.Embed(title="💼 Portfolio", description=description, color=discord.Color.blurple()))
 
     if not has_content:
@@ -360,6 +383,59 @@ class QuickAlertModal(discord.ui.Modal, title="Set a price alert"):
         await interaction.followup.send(message, ephemeral=True)
 
 
+class QuickShortModal(discord.ui.Modal, title="Open a short"):
+    ticker: discord.ui.TextInput = discord.ui.TextInput(label="Ticker", placeholder="AAPL", max_length=10)
+    shares: discord.ui.TextInput = discord.ui.TextInput(label="Shares", placeholder="10")
+    price: discord.ui.TextInput = discord.ui.TextInput(
+        label="Price shorted at (blank = today's price)", required=False, placeholder="Leave blank to use the current price"
+    )
+
+    def __init__(self, guild_id: int, user_id: int):
+        super().__init__()
+        self.guild_id = guild_id
+        self.user_id = user_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            shares_val = float(self.shares.value)
+        except ValueError:
+            await interaction.response.send_message("Shares needs to be a number.", ephemeral=True)
+            return
+
+        price_val = None
+        if self.price.value.strip():
+            try:
+                price_val = float(self.price.value)
+            except ValueError:
+                await interaction.response.send_message("Price needs to be a number, or leave it blank.", ephemeral=True)
+                return
+
+        await interaction.response.defer(ephemeral=True)
+        _, message = await _short_position(self.guild_id, self.user_id, self.ticker.value, shares_val, price_val)
+        await interaction.followup.send(message, ephemeral=True)
+
+
+class QuickCoverModal(discord.ui.Modal, title="Cover a short"):
+    ticker: discord.ui.TextInput = discord.ui.TextInput(label="Ticker", placeholder="AAPL", max_length=10)
+    shares: discord.ui.TextInput = discord.ui.TextInput(label="Shares", placeholder="10")
+
+    def __init__(self, guild_id: int, user_id: int):
+        super().__init__()
+        self.guild_id = guild_id
+        self.user_id = user_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            shares_val = float(self.shares.value)
+        except ValueError:
+            await interaction.response.send_message("Shares needs to be a number.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        _, message = await _cover_position(self.guild_id, self.user_id, self.ticker.value, shares_val)
+        await interaction.followup.send(message, ephemeral=True)
+
+
 class DigestView(discord.ui.View):
     # A simple 24h-timeout view, not a persistent one, so it won't survive a redeploy but needs no startup wiring.
     def __init__(self, guild_id: int, user_id: int, content: str):
@@ -381,6 +457,14 @@ class DigestView(discord.ui.View):
     @discord.ui.button(label="Alert", emoji="🔔", style=discord.ButtonStyle.secondary, row=1)
     async def alert_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(QuickAlertModal(self.guild_id, self.user_id))
+
+    @discord.ui.button(label="Short", emoji="📛", style=discord.ButtonStyle.danger, row=2)
+    async def short_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(QuickShortModal(self.guild_id, self.user_id))
+
+    @discord.ui.button(label="Cover", emoji="🛡️", style=discord.ButtonStyle.success, row=2)
+    async def cover_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(QuickCoverModal(self.guild_id, self.user_id))
 
 
 # Labels double as the dropdown order on the posted server digest, day first since that's the default.

@@ -56,8 +56,12 @@ SECTIONS = [
         "`/portfolio buy <ticker> <shares> [price]` - log a buy, blends into your average cost "
         "if you already hold some, leave price blank to use today's live price\n"
         "`/portfolio sell <ticker> <shares>` - log a sell, reduces or closes the position\n"
+        "`/portfolio short <ticker> <shares> [price]` - open or add to a short position, leave "
+        "price blank to use today's live price. You can't be long and short the same ticker at once\n"
+        "`/portfolio cover <ticker> <shares>` - buy back shares to reduce or close a short\n"
         "`/portfolio remove <ticker>` - fully clear a position\n"
-        "`/portfolio view` - see every holding with live profit/loss, plus your totals",
+        "`/portfolio view` - see every holding with live profit/loss, plus your totals. Short "
+        "positions are tagged (S) and their profit/loss is flipped, since they gain when the price drops",
     ),
     (
         "🔔 Alerts & Notifications",
@@ -68,8 +72,8 @@ SECTIONS = [
         "`/digest` - toggle a daily DM summarizing your watchlist, sent every morning\n"
         "`/digest_now` - send that DM right now instead of waiting for the morning schedule\n"
         "Slash commands don't work in my DMs, so if you're already in one, just send the word `digest` "
-        "instead and I'll send the same thing. The digest also has Buy, Sell, and Alert buttons right "
-        "on it, for logging a trade or setting an alert without leaving the DM.",
+        "instead and I'll send the same thing. The digest also has Buy, Sell, Short, Cover, and Alert "
+        "buttons right on it, for logging a trade or setting an alert without leaving the DM.",
     ),
     (
         "🔁 Automatic Updates",
