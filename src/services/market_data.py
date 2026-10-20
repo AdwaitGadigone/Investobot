@@ -33,6 +33,8 @@ _QUOTE_TIMEOUT_SECONDS = 8
 _name_cache: dict[str, str] = {}
 # Same lifecycle as _name_cache, piggybacks on the exact same t.info call below, no extra fetch needed.
 _quote_type_cache: dict[str, str | None] = {}
+# Same lifecycle again, a ticker's listing currency (USD, EUR...) never changes either.
+_currency_cache: dict[str, str] = {}
 
 
 def _fetch_quote_sync(ticker: str) -> dict:
@@ -57,16 +59,20 @@ def _fetch_quote_sync(ticker: str) -> dict:
 
     long_name = _name_cache.get(ticker.upper(), ticker.upper())
     quote_type = _quote_type_cache.get(ticker.upper())
+    currency = _currency_cache.get(ticker.upper(), "USD")
     if ticker.upper() not in _name_cache:
         try:
             # Names don't change, so this slow call only ever runs once per ticker for the process's lifetime.
-            # quoteType (EQUITY, ETF, CRYPTOCURRENCY...) comes along for free in this same response, this is
-            # what lets /rating tell someone "PHO is an ETF" instead of implying the API key might be broken.
+            # quoteType (EQUITY, ETF, CRYPTOCURRENCY...) and currency (USD, EUR...) come along for free in
+            # this same response, this is what lets /rating tell someone "PHO is an ETF" and lets prices
+            # for non-US listings like Euronext Paris show their real currency instead of a wrong "$".
             full_info = t.info
             long_name = full_info.get("longName") or full_info.get("shortName") or long_name
             quote_type = full_info.get("quoteType")
+            currency = full_info.get("currency") or "USD"
             _name_cache[ticker.upper()] = long_name
             _quote_type_cache[ticker.upper()] = quote_type
+            _currency_cache[ticker.upper()] = currency
         except Exception:
             pass
 
@@ -74,6 +80,7 @@ def _fetch_quote_sync(ticker: str) -> dict:
         "ticker": ticker.upper(),
         "name": long_name,
         "quote_type": quote_type,
+        "currency": currency,
         "price": last_price,
         "prev_close": prev_close,
         "change": change,

@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import HEAVY_COOLDOWN_SECONDS
-from services import market_data
+from services import currency, market_data
 from services.ticker_search import ticker_autocomplete
 
 
@@ -35,7 +35,7 @@ def _ticker_field(ticker: str, quote: dict, trends: dict | None) -> str:
     up = quote["change"] >= 0
     arrow = "▲" if up else "▼"
     lines = [
-        f"**${quote['price']:,.2f}**",
+        f"**{currency.fmt_native(quote['price'], quote.get('currency'))}**",
         f"{arrow} {quote['change']:+.2f} ({quote['change_pct']:+.2f}%)",
         f"Mkt Cap: {_fmt_num(quote['market_cap'])}",
         _consensus_line(trends),

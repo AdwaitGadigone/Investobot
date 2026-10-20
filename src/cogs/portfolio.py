@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import HEAVY_COOLDOWN_SECONDS, LIGHT_COOLDOWN_SECONDS
-from services import db, market_data
+from services import currency, db, fx, market_data
 from services.ticker_search import make_owned_autocomplete, ticker_autocomplete
 
 
@@ -57,9 +57,10 @@ async def _open_position(
             f"You already have a **{result}** position in **{ticker}**, `/portfolio {close_cmd}` it "
             f"first before you can {verb} it."
         )
+    price_str = currency.fmt_native(actual_price, quote.get("currency"))
     return True, (
         f"Logged {'shorting' if direction == 'short' else 'buying'} **{shares:g}** shares of **{ticker}** "
-        f"at **${actual_price:,.2f}**. Check `/portfolio view` for your updated position."
+        f"at **{price_str}**. Check `/portfolio view` for your updated position."
     )
 
 
@@ -99,7 +100,7 @@ async def _cover_position(guild_id: int, user_id: int, ticker: str, shares: floa
     return await _close_position(guild_id, user_id, ticker, "short", shares)
 
 
-def _pl_line(ticker: str, direction: str, shares: float, cost_basis: float, price: float) -> str:
+def _pl_line(ticker: str, direction: str, shares: float, cost_basis: float, price: float, cur: str | None) -> str:
     # Same ANSI color trick used elsewhere in the bot, one line per position.
     esc = chr(27)
     pl_dollar = _pl_dollar(direction, shares, cost_basis, price)
@@ -110,8 +111,8 @@ def _pl_line(ticker: str, direction: str, shares: float, cost_basis: float, pric
     tag = " (short)" if direction == "short" else ""
     label = "shorted at" if direction == "short" else "avg"
     return (
-        f"{esc}[1;{color_code}m{ticker:<6}{tag}{shares:>8.2f} sh @ ${cost_basis:>8.2f} {label} -> "
-        f"${price:>8.2f}  {pl_dollar:+,.2f} ({pl_pct:+.1f}%){reset}"
+        f"{esc}[1;{color_code}m{ticker:<6}{tag}{shares:>8.2f} sh @ {currency.fmt_native_padded(cost_basis, cur)} {label} -> "
+        f"{currency.fmt_native_padded(price, cur)}  {pl_dollar:+,.2f} ({pl_pct:+.1f}%){reset}"
     )
 
 
@@ -231,13 +232,18 @@ class Portfolio(commands.Cog):
                 # A delisted or temporarily broken ticker shouldn't hide the rest of the portfolio.
                 continue
             price = quote["price"]
-            lines.append(_pl_line(ticker, direction, shares, cost_basis, price))
-            total_value += shares * price
-            total_cost += shares * cost_basis
+            cur = quote.get("currency") or "USD"
+            lines.append(_pl_line(ticker, direction, shares, cost_basis, price, cur))
+
+            # Positions can be in different listing currencies (a Paris-listed EUR stock next to a US one),
+            # so everything gets normalized to USD before adding to a single portfolio-wide total.
+            fx_rate = 1.0 if cur == "USD" else (await fx.get_fx_rate(cur, "USD") or 1.0)
+            total_value += shares * price * fx_rate
+            total_cost += shares * cost_basis * fx_rate
             # Summed directly instead of derived from total_value - total_cost, a short's P/L isn't that
             # simple subtraction (it profits when price falls), each position's own correctly-signed
             # number is what actually adds up right across a portfolio mixing longs and shorts.
-            total_pl += _pl_dollar(direction, shares, cost_basis, price)
+            total_pl += _pl_dollar(direction, shares, cost_basis, price) * fx_rate
 
         if not lines:
             await interaction.followup.send("Couldn't fetch live prices for your positions right now, try again shortly.")
@@ -262,8 +268,19 @@ class Portfolio(commands.Cog):
             description=description,
             color=discord.Color.green() if total_pl >= 0 else discord.Color.red(),
         )
-        embed.add_field(name="Total Value", value=f"${total_value:,.2f}", inline=True)
-        embed.add_field(name="Total P/L", value=f"{total_pl:+,.2f} ({total_pl_pct:+.1f}%)", inline=True)
+        # Totals above are normalized to USD, the opt-in /currency setting converts that into whatever's preferred.
+        pref = await db.get_currency_pref(interaction.guild_id, interaction.user.id)
+        display_value, display_pl = total_value, total_pl
+        display_cur = "USD"
+        if pref and pref != "USD":
+            rate = await fx.get_fx_rate("USD", pref)
+            if rate is not None:
+                display_value, display_pl, display_cur = total_value * rate, total_pl * rate, pref
+
+        pl_sign = "+" if display_pl >= 0 else "-"
+        pl_str = f"{pl_sign}{currency.fmt_native(abs(display_pl), display_cur)}"
+        embed.add_field(name="Total Value", value=currency.fmt_native(display_value, display_cur), inline=True)
+        embed.add_field(name="Total P/L", value=f"{pl_str} ({total_pl_pct:+.1f}%)", inline=True)
         # A mixed portfolio can have both real-time (Finnhub-covered) and delayed (Yahoo-only) tickers in one embed.
         embed.set_footer(text="Data: Yahoo Finance, real-time price via Finnhub where available")
 
