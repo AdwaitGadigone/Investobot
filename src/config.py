@@ -61,16 +61,16 @@ DIGEST_TIME_UTC = time(hour=12, minute=30, tzinfo=timezone.utc)
 # once already (5 RPM / 20 RPD free tier, much tighter than the old limits) and caused live 429s.
 # gemini-2.0-flash is the current stable free-tier model: 15 RPM, 1500 RPD. Re-verify limits at
 # aistudio.google.com/rate-limit if 429s appear again, and bump the version number if Google deprecates this one.
-ANALYST_TAKE_MODEL = "gemini-2.0-flash"
+ANALYST_TAKE_MODEL = "gemini-3.8-flash"
 
 # Same model, kept as its own setting in case chat and /rating ever need different tuning.
-CHAT_MODEL = "gemini-2.0-flash"
+CHAT_MODEL = "gemini-3.8-flash"
 
 # Shared cap across every Gemini call (chat + analyst take + sentiment), kept under the free tier so
-# nothing ever bills. gemini-2.0-flash free tier: 15 RPM, 1500 RPD.
-GEMINI_RPM_LIMIT = 12
-# Daily cap set conservatively below the 1500 RPD free limit. Bump if a busy day legitimately needs more.
-GEMINI_RPD_LIMIT = 200
+# nothing ever bills. Verify gemini-3.8-flash free tier limits at aistudio.google.com/rate-limit if
+# 429s appear, and adjust these accordingly.
+GEMINI_RPM_LIMIT = 10
+GEMINI_RPD_LIMIT = 100
 
 # Per-user slash command cooldowns, seconds between uses of the same command. Light is for simple DB reads/writes.
 LIGHT_COOLDOWN_SECONDS = 3
