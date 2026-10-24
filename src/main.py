@@ -116,4 +116,16 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import time
+    # Python 3.11+ converts an unhandled CancelledError inside asyncio.run() into a KeyboardInterrupt,
+    # so a transient network hiccup that drops the WebSocket can kill the process instead of reconnecting.
+    # This loop catches that and any other unexpected top-level crash and restarts after a short delay.
+    while True:
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            log.info("Received KeyboardInterrupt, shutting down")
+            break
+        except Exception as e:
+            log.error("Unexpected top-level crash: %s — restarting in 15s", e)
+            time.sleep(15)
