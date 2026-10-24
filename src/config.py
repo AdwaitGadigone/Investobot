@@ -57,23 +57,20 @@ BREAKING_WATCH_TICKERS = [
 DIGEST_TIME_UTC = time(hour=12, minute=30, tzinfo=timezone.utc)
 
 # Gemini's free tier has no billing requirement at all, which is what /rating's AI take runs on.
-ANALYST_TAKE_MODEL = "gemini-flash-latest"
+# Pinned to a specific version instead of a "latest" alias: the alias silently moved to gemini-3.7-flash
+# once already (5 RPM / 20 RPD free tier, much tighter than the old limits) and caused live 429s.
+# gemini-2.0-flash is the current stable free-tier model: 15 RPM, 1500 RPD. Re-verify limits at
+# aistudio.google.com/rate-limit if 429s appear again, and bump the version number if Google deprecates this one.
+ANALYST_TAKE_MODEL = "gemini-2.0-flash"
 
-# Same free model, kept as its own setting in case chat and /rating ever need different tuning.
-CHAT_MODEL = "gemini-flash-latest"
+# Same model, kept as its own setting in case chat and /rating ever need different tuning.
+CHAT_MODEL = "gemini-2.0-flash"
 
 # Shared cap across every Gemini call (chat + analyst take + sentiment), kept under the free tier so
-# nothing ever bills. Google's "latest" alias silently started resolving to gemini-3.7-flash at some
-# point, whose free tier is only 5 requests/minute, not whatever the old model's limit was, this had
-# drifted to 8 (over the real limit) and every request past the 5th in a busy minute was hitting a real
-# 429 from Google, not this limiter, confirmed live against the actual API before lowering it. Re-verify
-# at aistudio.google.com/rate-limit if this ever silently drifts again.
-GEMINI_RPM_LIMIT = 4
-# Same story as the RPM limit above, but for the daily cap: gemini-3.7-flash's free tier daily quota is
-# only 20 requests a day, total, shared across every server and every Gemini feature combined, not the
-# 200 this had been left at. Confirmed live: a real request returned a 429 naming this exact quota
-# ("GenerateRequestsPerDayPerProjectPerModel-FreeTier", value 20) well before 200 calls had happened.
-GEMINI_RPD_LIMIT = 15
+# nothing ever bills. gemini-2.0-flash free tier: 15 RPM, 1500 RPD.
+GEMINI_RPM_LIMIT = 12
+# Daily cap set conservatively below the 1500 RPD free limit. Bump if a busy day legitimately needs more.
+GEMINI_RPD_LIMIT = 200
 
 # Per-user slash command cooldowns, seconds between uses of the same command. Light is for simple DB reads/writes.
 LIGHT_COOLDOWN_SECONDS = 3
