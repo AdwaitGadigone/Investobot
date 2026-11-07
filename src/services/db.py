@@ -116,6 +116,32 @@ async def init_db() -> None:
         await conn.execute("ALTER TABLE digest_optin ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT 'watchlist'")
         await conn.execute("ALTER TABLE guild_settings ADD COLUMN IF NOT EXISTS updates_channel_id BIGINT")
         await conn.execute("ALTER TABLE portfolio ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'long'")
+        # Migrate portfolio to be global per-user instead of per-guild. Keep the highest-shares row when
+        # the same (user_id, ticker) exists in multiple guilds, then change the primary key so the table
+        # enforces one position per user per ticker regardless of server. guild_id column stays but is
+        # set to 0 on new inserts and ignored on reads.
+        await conn.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_name = 'portfolio' AND constraint_name = 'portfolio_pkey'
+                    AND constraint_type = 'PRIMARY KEY'
+                ) AND EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'portfolio' AND column_name = 'guild_id'
+                    AND (SELECT string_agg(column_name, ',') FROM information_schema.key_column_usage
+                         WHERE constraint_name = 'portfolio_pkey' AND table_name = 'portfolio') LIKE '%guild_id%'
+                ) THEN
+                    DELETE FROM portfolio p1
+                    USING portfolio p2
+                    WHERE p1.user_id = p2.user_id AND p1.ticker = p2.ticker
+                      AND (p1.shares < p2.shares OR (p1.shares = p2.shares AND p1.guild_id > p2.guild_id));
+                    ALTER TABLE portfolio DROP CONSTRAINT portfolio_pkey;
+                    ALTER TABLE portfolio ADD PRIMARY KEY (user_id, ticker);
+                END IF;
+            END$$
+        """)
 
 
 def _affected(status: str) -> int:
@@ -390,18 +416,19 @@ async def all_digest_optins() -> list[tuple[int, int, str]]:
 
 # Personal portfolio, separate from /watchlist which has no position attached, cost_basis is a weighted average.
 async def get_portfolio(guild_id: int, user_id: int) -> list[tuple]:
+    # guild_id kept in signature for backward compat but portfolios are now global per-user.
     async with _pool.acquire() as conn:
         return await conn.fetch(
             "SELECT ticker, direction, shares, cost_basis FROM portfolio "
-            "WHERE guild_id = $1 AND user_id = $2 ORDER BY ticker",
-            guild_id, user_id,
+            "WHERE user_id = $1 ORDER BY ticker",
+            user_id,
         )
 
 
 async def _get_position(conn, guild_id: int, user_id: int, ticker: str):
     return await conn.fetchrow(
-        "SELECT direction, shares, cost_basis FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
-        guild_id, user_id, ticker,
+        "SELECT direction, shares, cost_basis FROM portfolio WHERE user_id = $1 AND ticker = $2",
+        user_id, ticker,
     )
 
 
@@ -422,15 +449,15 @@ async def _open_position(
             total_cost = existing["shares"] * existing["cost_basis"] + shares * price
             new_cost_basis = total_cost / total_shares
             await conn.execute(
-                "UPDATE portfolio SET shares = $1, cost_basis = $2 "
-                "WHERE guild_id = $3 AND user_id = $4 AND ticker = $5",
-                total_shares, new_cost_basis, guild_id, user_id, ticker,
+                "UPDATE portfolio SET shares = $1, cost_basis = $2 WHERE user_id = $3 AND ticker = $4",
+                total_shares, new_cost_basis, user_id, ticker,
             )
         else:
+            # guild_id stored as 0; portfolios are now global per-user, the column is kept for schema compat.
             await conn.execute(
                 "INSERT INTO portfolio (guild_id, user_id, ticker, direction, shares, cost_basis) "
                 "VALUES ($1, $2, $3, $4, $5, $6)",
-                guild_id, user_id, ticker, direction, shares, price,
+                0, user_id, ticker, direction, shares, price,
             )
         return "ok"
 
@@ -460,13 +487,13 @@ async def _close_position(guild_id: int, user_id: int, ticker: str, direction: s
         # Epsilon guards against float dust, e.g. 10.0 - 10.0 landing on 0.0000000001 instead of exactly 0.
         if remaining <= 1e-9:
             await conn.execute(
-                "DELETE FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
-                guild_id, user_id, ticker,
+                "DELETE FROM portfolio WHERE user_id = $1 AND ticker = $2",
+                user_id, ticker,
             )
         else:
             await conn.execute(
-                "UPDATE portfolio SET shares = $1 WHERE guild_id = $2 AND user_id = $3 AND ticker = $4",
-                remaining, guild_id, user_id, ticker,
+                "UPDATE portfolio SET shares = $1 WHERE user_id = $2 AND ticker = $3",
+                remaining, user_id, ticker,
             )
         return "ok"
 
@@ -482,8 +509,8 @@ async def cover_position(guild_id: int, user_id: int, ticker: str, shares: float
 async def remove_position(guild_id: int, user_id: int, ticker: str) -> bool:
     async with _pool.acquire() as conn:
         status = await conn.execute(
-            "DELETE FROM portfolio WHERE guild_id = $1 AND user_id = $2 AND ticker = $3",
-            guild_id, user_id, ticker,
+            "DELETE FROM portfolio WHERE user_id = $1 AND ticker = $2",
+            user_id, ticker,
         )
         return _affected(status) > 0
 
@@ -501,8 +528,8 @@ async def edit_position(
         new_shares = shares if shares is not None else existing["shares"]
         new_cost_basis = cost_basis if cost_basis is not None else existing["cost_basis"]
         await conn.execute(
-            "UPDATE portfolio SET shares = $1, cost_basis = $2 WHERE guild_id = $3 AND user_id = $4 AND ticker = $5",
-            new_shares, new_cost_basis, guild_id, user_id, ticker,
+            "UPDATE portfolio SET shares = $1, cost_basis = $2 WHERE user_id = $3 AND ticker = $4",
+            new_shares, new_cost_basis, user_id, ticker,
         )
         return True
 
