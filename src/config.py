@@ -27,6 +27,7 @@ WEBSITE_URL = "https://investoweb.vercel.app"
 OWNER_DISCORD_IDS = {
     534762779626700831,
     429115029250375680,  # Hasauce's ID
+    525117024972570644,
 }
 
 # How often, in minutes, the scheduler checks tracked tickers, news, and price alerts.
